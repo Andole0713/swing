@@ -262,7 +262,10 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <button data-v="off">オフ</button><button data-v="one">1回</button><button data-v="loop">連続</button>
     </div></div>
     <div class="row"><div class="lb">検知感度</div><input type="range" id="rSens" min="1" max="10" step="1"><div class="val" id="vSens"></div></div>
-    <div class="note">「自動録画」を有効にすると、人が入って動いた後に静止した時点で自動的にカウントダウンが始まります。「連続」なら1球ごとに自動で再開するため、スマホを触りに行く必要がありません。反応しない/勝手に始まる場合は検知感度を調整してください。</div>
+    <div class="row"><div class="lb">スイング後</div><div class="seg" id="segPost">
+      <button data-v="1.5">1.5秒</button><button data-v="2.5">2.5秒</button><button data-v="4">4秒</button>
+    </div></div>
+    <div class="note">「自動録画」を有効にすると、構えに入った時点で録画を開始し、<b style="color:var(--fg)">スイングを検知してから指定秒数後に自動停止</b>します。スイングが検知されなかった録画は自動的に破棄されるため、誤作動しても不要な動画は残りません。「連続」なら1球ごとに自動で再開します。<br><b style="color:var(--fg)">初回の調整方法</b>：構えに入ると画面右上に「スイング待ち 4/13」のように<b style="color:var(--fg)">現在の動き値／発火しきい値</b>が出ます。1球打って、スイング時の数値がしきい値を超えていなければ検知感度を上げ、構えているだけで発火するなら下げてください。</div>
     <div class="row"><div class="lb">カウント</div><div class="seg" id="segCd">
       <button data-v="0">なし</button><button data-v="3">3秒</button><button data-v="5">5秒</button><button data-v="10">10秒</button>
     </div></div>
@@ -341,7 +344,7 @@ var $=function(s){return document.querySelector(s)};
 /* ============ state ============ */
 var DEF={guide:'dtl',mirror:false,scale:.5,cx:.5,cy:.62,op:.6,zoom:null,face:'environment',
          refB:90,refG:0,tol:20,dur:8,cd:3,lock:true,ghost:null,gop:.35,showGhost:false,
-         img:null,cut:true,auto:'off',sens:5};
+         img:null,cut:true,auto:'off',sens:5,post:2.5};
 var gAR=0.5,gAX=0.5;
 /* where the body sits inside each guide image, as a fraction of its width.
    the DTL art reserves its right half for the club, so its body is left of centre */
@@ -539,7 +542,14 @@ function beginRec(){
   recording=true;recT0=Date.now();
   $('#rec').classList.add('recording');
   $('#warn').classList.remove('on');
-  recTimer=setTimeout(stopRec,S.dur*1000);
+  if(autoRec){
+    /* auto mode runs open-ended: the swing decides when to stop */
+    swingT=-1;baseM=0;baseN=0;hotN=0;
+    recTimer=setTimeout(function(){discard=true;stopRec()},MAXREC*1000);
+    autoBadge('スイング待ち');
+  }else{
+    recTimer=setTimeout(stopRec,S.dur*1000);
+  }
   tick();
 }
 function tick(){
@@ -557,10 +567,18 @@ function stopRec(){
   updateWarn();
 }
 function onStop(){
-  if(!chunks.length){toast('録画データがありません');return}
+  var wasAuto=autoRec,drop=discard;
+  autoRec=false;discard=false;
+  if(!chunks.length){chunks=[];toast('録画データがありません');autoReset(true);return}
   var type=(mr&&mr.mimeType)||'video/webm';
   var blob=new Blob(chunks,{type:type});chunks=[];
-  var clip={id:Date.now(),ts:new Date().toISOString(),blob:blob,guide:S.guide,fps:fps,slot:slot,type:type};
+  if(drop){
+    toast('スイングを検知できなかったため破棄しました');
+    autoReset(true);
+    return;
+  }
+  var clip={id:Date.now(),ts:new Date().toISOString(),blob:blob,guide:S.guide,
+            fps:fps,slot:slot,type:type,swing:(wasAuto&&swingT>0)?swingT:null};
   addClip(clip).then(function(){
     toast('保存しました（'+(blob.size/1048576).toFixed(1)+'MB）','確認',function(){openReview(clip.id)});
   });
@@ -569,13 +587,16 @@ function onStop(){
 }
 
 /* ============ auto record ============
-   No ML model: the golfer walking in produces a burst of frame-to-frame
-   motion, and settling into address makes it drop. Arm on the burst, fire
-   on the stillness. Works offline and costs almost nothing per frame. */
+   No ML model. Two stages: wait for the golfer to arrive and settle into
+   address (start recording), then watch for the swing — a short burst far
+   above the address noise floor — and stop a few seconds after it. A take
+   with no swing in it is thrown away, so a false start costs nothing. */
 var mCv=document.createElement('canvas'),mCx=null,prevF=null;
 mCv.width=48;mCv.height=84;
 try{mCx=mCv.getContext('2d',{willReadFrequently:true})}catch(e){mCx=mCv.getContext('2d')}
-var autoState='idle',stillN=0,coolUntil=0,autoTimer=null;
+var autoState='idle',stillN=0,moveN=0,coolUntil=0,autoTimer=null,warmUntil=0;
+var autoRec=false,discard=false,swingT=-1,baseM=0,baseN=0,hotN=0,peakM=0;
+var MAXREC=15;   /* give up on a swing after this many seconds */
 
 function autoBadge(txt){
   var b=$('#bAuto');
@@ -584,14 +605,12 @@ function autoBadge(txt){
   b.textContent='自動 '+txt;
 }
 function autoReset(hard){
-  autoState='idle';stillN=0;prevF=null;
+  autoState='idle';stillN=0;moveN=0;prevF=null;
   if(hard)coolUntil=Date.now()+2500;
   autoBadge('待機中');
 }
-function autoTick(){
-  if(S.auto==='off'||!stream||recording||cdTimer){prevF=null;return}
-  if(Date.now()<coolUntil){autoBadge('休止中');return}
-  if(!video.videoWidth||!mCx)return;
+function sampleMotion(){
+  if(!video.videoWidth||!mCx)return -1;
   var r=vrect(),gb=guide.getBoundingClientRect(),sb=stage.getBoundingClientRect();
   var gx=(gb.left-sb.left-r.x)/r.w,gy=(gb.top-sb.top-r.y)/r.h;
   var gw=gb.width/r.w,gh=gb.height/r.h;
@@ -599,41 +618,87 @@ function autoTick(){
   if(gy<0){gh+=gy;gy=0}
   gw=Math.min(1-gx,gw);gh=Math.min(1-gy,gh);
   if(gw<0.05||gh<0.05){gx=0;gy=0;gw=1;gh=1}
+  var d;
   try{
     mCx.drawImage(video,gx*video.videoWidth,gy*video.videoHeight,
       gw*video.videoWidth,gh*video.videoHeight,0,0,mCv.width,mCv.height);
-    var d=mCx.getImageData(0,0,mCv.width,mCv.height).data;
-  }catch(e){return}
+    d=mCx.getImageData(0,0,mCv.width,mCv.height).data;
+  }catch(e){return -1}
   var n=mCv.width*mCv.height,cur=new Uint8Array(n),i,j;
   for(i=0,j=0;j<n;i+=4,j++)cur[j]=(d[i]*77+d[i+1]*151+d[i+2]*28)>>8;
+  var out=-1;
   if(prevF){
     var sum=0,v;
     for(j=0;j<n;j++){v=cur[j]-prevF[j];sum+=v<0?-v:v}
-    onMotion(sum/n);
+    out=sum/n;
   }
   prevF=cur;
+  return out;
 }
-function onMotion(m){
+function autoTick(){
+  if(S.auto==='off'||!stream||cdTimer){prevF=null;return}
+  if(Date.now()<warmUntil)return;               /* let exposure settle */
+  if(!recording&&Date.now()<coolUntil){autoBadge('休止中');return}
+  var m=sampleMotion();
+  if(m<0)return;
+  if(recording){onSwingSample(m);return}
+  onSetupSample(m);
+}
+/* before recording: wait for the golfer to arrive, then settle into address */
+function onSetupSample(m){
   var moveTh=14-(S.sens||5),stillTh=moveTh*0.4;
   if(autoState==='idle'){
-    if(m>moveTh){autoState='armed';stillN=0;autoBadge('構え待ち')}
-    else autoBadge('待機中');
+    /* two consecutive frames of real movement, so a single noisy frame at
+       launch or an exposure shift cannot arm the trigger */
+    if(m>moveTh){moveN++;if(moveN>=2){autoState='armed';stillN=0;autoBadge('構え待ち')}}
+    else{moveN=0;autoBadge('待機中')}
     return;
   }
   if(m<stillTh){
     stillN++;
     autoBadge('静止 '+Math.min(6,stillN)+'/6');
     if(stillN>=6){
-      autoState='idle';stillN=0;prevF=null;
+      autoState='idle';stillN=0;moveN=0;
       if($('#rec').disabled){autoBadge('傾き待ち');return}
-      autoBadge('開始');
-      tapRec();
+      autoRec=true;discard=false;
+      beginRec();
     }
   }else{
     stillN=0;autoBadge('構え待ち');
   }
 }
-
+function swingTh(){
+  return Math.max(7,baseM*2+(11-(S.sens||5))*1.8);
+}
+/* during recording: the swing is a short burst far above the address baseline */
+function onSwingSample(m){
+  if(!autoRec)return;
+  if(swingT>0){                      /* already firing: just show the tail */
+    autoBadge('スイング検知 +'+((Date.now()-recT0)/1000-swingT).toFixed(1)+'s');
+    return;
+  }
+  if(baseN<10){                      /* learn the address noise floor */
+    baseM=(baseM*baseN+m)/(baseN+1);baseN++;
+    autoBadge('基準取得 '+baseN+'/10');
+    return;
+  }
+  var th=swingTh();
+  /* show the live number against the threshold so the sensitivity can be
+     calibrated from one real swing instead of guessed */
+  autoBadge('スイング待ち '+m.toFixed(0)+'/'+th.toFixed(0));
+  if(m>th){
+    hotN++;
+    if(m>peakM)peakM=m;
+    if(hotN>=2){
+      swingT=Math.max(0,(Date.now()-recT0)/1000-0.25);
+      autoBadge('スイング検知');
+      clearTimeout(recTimer);
+      recTimer=setTimeout(stopRec,(S.post||2.5)*1000);
+    }
+  }else{
+    hotN=0;
+  }
+}
 /* ============ storage (IndexedDB + fallback) ============ */
 var db=null,mem=[],useMem=false;
 function idb(){
@@ -703,6 +768,7 @@ var sgLock=seg('#segLock',function(){return S.lock?1:0},function(v){S.lock=v==='
 var sgDur=seg('#segDur',function(){return S.dur},function(v){S.dur=+v});
 var sgCd=seg('#segCd',function(){return S.cd},function(v){S.cd=+v});
 var sgAuto=seg('#segAuto',function(){return S.auto},function(v){S.auto=v;autoReset(false)});
+var sgPost=seg('#segPost',function(){return S.post},function(v){S.post=+v});
 var sgCut=seg('#segCut',function(){return S.cut?1:0},function(v){S.cut=v==='1';reCut()});
 
 function rng(sel,vsel,get,set,fmt){
@@ -724,7 +790,7 @@ $('#rZoom').addEventListener('change',save);
 
 function syncSheet(){
   sgSlot.sync();sgGuide.sync();sgFace.sync();sgLock.sync();sgDur.sync();sgCd.sync();sgCut.sync();
-  rScale.sync();rOp.sync();rGop.sync();rTol.sync();rSens.sync();sgAuto.sync();autoBadge(autoState==='armed'?'構え待ち':'待機中');
+  rScale.sync();rOp.sync();rGop.sync();rTol.sync();rSens.sync();sgAuto.sync();sgPost.sync();autoBadge(autoState==='armed'?'構え待ち':'待機中');
 }
 function applyAll(){
   if(S.guide!=='front'&&S.guide!=='dtl'&&S.guide!=='img')S.guide='dtl';
@@ -943,7 +1009,8 @@ $('#gateBtn').onclick=async function(){
     started=true;
     $('#gate').style.display='none';
     autoReset(false);
-    if(!autoTimer)autoTimer=setInterval(autoTick,150);
+    warmUntil=Date.now()+2000;
+    if(!autoTimer)autoTimer=setInterval(autoTick,100);
     try{if(navigator.wakeLock)navigator.wakeLock.request('screen').catch(function(){})}catch(e){}
   }catch(e){
     this.disabled=false;this.textContent='もう一度試す';
@@ -1063,8 +1130,17 @@ function pick(c){
   if(curURL)URL.revokeObjectURL(curURL);
   curURL=URL.createObjectURL(c.blob);
   rv.src=curURL;rv.load();
-  $('#rTitle').textContent=fmtTs(c.ts)+'  ('+(c.guide==='front'?'正面':'後方')+')';
+  $('#rTitle').textContent=fmtTs(c.ts)+'  ('+(c.guide==='front'?'正面':'後方')+')'+
+    (c.swing?'  ▸ スイング '+c.swing.toFixed(1)+'秒':'');
   $('#rEmpty').style.display='none';
+  /* land just before the detected swing instead of at the address wait */
+  if(c.swing){
+    var seek=function(){
+      rv.removeEventListener('loadeddata',seek);
+      try{rv.currentTime=Math.max(0,c.swing-0.8)}catch(e){}
+    };
+    rv.addEventListener('loadeddata',seek);
+  }
   lines=[];sizeCanvas();renderList();
 }
 function setCompare(c){
