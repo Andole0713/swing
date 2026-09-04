@@ -146,6 +146,8 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 .rrow button{padding:9px 0;flex:1;border-radius:10px;background:var(--chip);font-size:12px;text-align:center}
 .rrow button.on{background:rgba(61,220,132,.18);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(61,220,132,.5)}
 #rTime{flex:0 0 84px;text-align:center;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+.cmplb{flex:0 0 auto;font-size:11px;color:var(--dim);padding:0 4px;align-self:center}
+#rCmpRow button{font-size:11.5px}
 #rColors{gap:8px}
 #rColors button{flex:1;height:26px;padding:0;border-radius:8px;
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
@@ -316,11 +318,16 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <button data-c="#ffffff" style="background:#ffffff"></button>
     </div>
     <div class="rrow">
-      <button id="rUndo">戻す</button>
-      <button id="rClear">消去</button>
-      <button id="rSplit">重ね</button>
-      <button id="rImg">画像</button>
-      <button id="rSave">動画</button>
+      <button id="rUndo">1つ戻す</button>
+      <button id="rClear">全て消去</button>
+      <button id="rImg">画像で保存</button>
+      <button id="rSave">動画で保存</button>
+    </div>
+    <div class="rrow" id="rCmpRow" style="display:none">
+      <div class="cmplb">比較表示</div>
+      <button id="rCmpOver" class="on">重ねる</button>
+      <button id="rCmpSide">並べる</button>
+      <button id="rCmpOff">比較をやめる</button>
     </div>
   </div>
   <div id="rList"></div>
@@ -1044,7 +1051,7 @@ function renderList(){
     var d=document.createElement('div');d.className='clip'+(cur&&cur.id===c.id?' on':'');
     d.innerHTML='<span class="n">'+fmtTs(c.ts)+'</span>'+
       '<span class="m">'+(c.guide==='front'?'正面':'後方')+' / P'+(c.slot||1)+' / '+((c.blob.size/1048576).toFixed(1))+'MB</span>'+
-      '<button class="cmp'+(cmpId===c.id?' on':'')+'">比較</button>';
+      '<button class="cmp'+(cmpId===c.id?' on':'')+'">'+(cmpId===c.id?'比較中':'比較')+'</button>';
     d.querySelector('.n').onclick=function(){pick(c)};
     d.querySelector('.m').onclick=function(){pick(c)};
     d.querySelector('.cmp').onclick=function(e){e.stopPropagation();setCompare(c)};
@@ -1065,13 +1072,15 @@ function setCompare(c){
     cmpId=null;rv2.style.opacity=0;
     if(cmpURL){URL.revokeObjectURL(cmpURL);cmpURL=null}
     rv2.removeAttribute('src');
-    split=false;$('#rStage').classList.remove('split');$('#rSplit').textContent='重ね';
-    sizeCanvas();renderList();return;
+    $('#rCmpRow').style.display='none';
+    setSplit(false);renderList();return;
   }
   cmpId=c.id;
   if(cmpURL)URL.revokeObjectURL(cmpURL);
   cmpURL=URL.createObjectURL(c.blob);
-  rv2.src=cmpURL;rv2.load();rv2.style.opacity=.5;
+  rv2.src=cmpURL;rv2.load();
+  $('#rCmpRow').style.display='flex';
+  setSplit(false);
   renderList();
 }
 rv.addEventListener('loadedmetadata',function(){sizeCanvas();updTime()});
@@ -1203,13 +1212,19 @@ $('#rSave').onclick=function(){
 };
 /* side-by-side vs overlay comparison */
 var split=false;
-$('#rSplit').onclick=function(){
-  if(!cmpId){toast('比較する動画を下の一覧から選んでください');return}
-  split=!split;
-  this.textContent=split?'並べ':'重ね';
+function setSplit(v){
+  split=v;
   $('#rStage').classList.toggle('split',split);
-  rv2.style.opacity=split?1:.5;
+  rv2.style.opacity=cmpId?(split?1:.5):0;
+  $('#rCmpOver').classList.toggle('on',!split);
+  $('#rCmpSide').classList.toggle('on',split);
   sizeCanvas();
+}
+$('#rCmpOver').onclick=function(){setSplit(false)};
+$('#rCmpSide').onclick=function(){setSplit(true)};
+$('#rCmpOff').onclick=function(){
+  var c=clips.filter(function(x){return x.id===cmpId})[0];
+  if(c)setCompare(c);
 };
 
 /* --- line drawing --- */
