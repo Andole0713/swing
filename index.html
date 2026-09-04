@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SwingFrame">
 <style>
 :root{
   --fg:#e9edf2; --dim:#93a0b0; --accent:#3ddc84; --warn:#ffb020; --bad:#ff5b5b;
@@ -130,6 +133,10 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 #rStage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden;touch-action:none}
 #rStage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:transparent}
 #rVideo2{opacity:0;pointer-events:none}
+#rStage.split #rVideo{left:0;width:50%}
+#rStage.split #rVideo2{left:50%;width:50%;opacity:1}
+#rStage.split:after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;
+  background:rgba(255,255,255,.25)}
 #rCanvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 #rEmpty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   color:var(--dim);font-size:13px;text-align:center;padding:20px}
@@ -169,7 +176,10 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <div id="lvlTxt"><b id="lvlMain">傾き —</b><span id="lvlSub">センサー待機</span></div>
     </div>
     <div style="flex:1"></div>
-    <div class="badge" id="bInfo">—</div>
+    <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+      <div class="badge" id="bInfo">—</div>
+      <div class="badge" id="bAuto" style="display:none">自動 —</div>
+    </div>
   </div>
 
   <div id="side">
@@ -246,6 +256,11 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
     <div class="row"><div class="lb">長さ</div><div class="seg" id="segDur">
       <button data-v="4">4秒</button><button data-v="6">6秒</button><button data-v="8">8秒</button><button data-v="12">12秒</button>
     </div></div>
+    <div class="row"><div class="lb">自動録画</div><div class="seg" id="segAuto">
+      <button data-v="off">オフ</button><button data-v="one">1回</button><button data-v="loop">連続</button>
+    </div></div>
+    <div class="row"><div class="lb">検知感度</div><input type="range" id="rSens" min="1" max="10" step="1"><div class="val" id="vSens"></div></div>
+    <div class="note">「自動録画」を有効にすると、人が入って動いた後に静止した時点で自動的にカウントダウンが始まります。「連続」なら1球ごとに自動で再開するため、スマホを触りに行く必要がありません。反応しない/勝手に始まる場合は検知感度を調整してください。</div>
     <div class="row"><div class="lb">カウント</div><div class="seg" id="segCd">
       <button data-v="0">なし</button><button data-v="3">3秒</button><button data-v="5">5秒</button><button data-v="10">10秒</button>
     </div></div>
@@ -265,6 +280,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
   <div class="rbar">
     <button id="rBack">‹ 撮影</button>
     <div class="t" id="rTitle">—</div>
+    <button id="rGhost">ゴースト</button>
     <button class="del" id="rDel">削除</button>
   </div>
   <div id="rStage">
@@ -300,10 +316,11 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <button data-c="#ffffff" style="background:#ffffff"></button>
     </div>
     <div class="rrow">
-      <button id="rUndo">1つ戻す</button>
-      <button id="rClear">全消去</button>
-      <button id="rGhost">ゴースト設定</button>
-      <button id="rSave">保存</button>
+      <button id="rUndo">戻す</button>
+      <button id="rClear">消去</button>
+      <button id="rSplit">重ね</button>
+      <button id="rImg">画像</button>
+      <button id="rSave">動画</button>
     </div>
   </div>
   <div id="rList"></div>
@@ -317,7 +334,7 @@ var $=function(s){return document.querySelector(s)};
 /* ============ state ============ */
 var DEF={guide:'dtl',mirror:false,scale:.5,cx:.5,cy:.62,op:.6,zoom:null,face:'environment',
          refB:90,refG:0,tol:20,dur:8,cd:3,lock:true,ghost:null,gop:.35,showGhost:false,
-         img:null,cut:true};
+         img:null,cut:true,auto:'off',sens:5};
 var gAR=0.5,gAX=0.5;
 /* where the body sits inside each guide image, as a fraction of its width.
    the DTL art reserves its right half for the club, so its body is left of centre */
@@ -540,6 +557,74 @@ function onStop(){
   addClip(clip).then(function(){
     toast('保存しました（'+(blob.size/1048576).toFixed(1)+'MB）','確認',function(){openReview(clip.id)});
   });
+  if(S.auto==='one'){S.auto='off';save();applyAll()}
+  autoReset(true);
+}
+
+/* ============ auto record ============
+   No ML model: the golfer walking in produces a burst of frame-to-frame
+   motion, and settling into address makes it drop. Arm on the burst, fire
+   on the stillness. Works offline and costs almost nothing per frame. */
+var mCv=document.createElement('canvas'),mCx=null,prevF=null;
+mCv.width=48;mCv.height=84;
+try{mCx=mCv.getContext('2d',{willReadFrequently:true})}catch(e){mCx=mCv.getContext('2d')}
+var autoState='idle',stillN=0,coolUntil=0,autoTimer=null;
+
+function autoBadge(txt){
+  var b=$('#bAuto');
+  if(S.auto==='off'||!started){b.style.display='none';return}
+  b.style.display='';
+  b.textContent='自動 '+txt;
+}
+function autoReset(hard){
+  autoState='idle';stillN=0;prevF=null;
+  if(hard)coolUntil=Date.now()+2500;
+  autoBadge('待機中');
+}
+function autoTick(){
+  if(S.auto==='off'||!stream||recording||cdTimer){prevF=null;return}
+  if(Date.now()<coolUntil){autoBadge('休止中');return}
+  if(!video.videoWidth||!mCx)return;
+  var r=vrect(),gb=guide.getBoundingClientRect(),sb=stage.getBoundingClientRect();
+  var gx=(gb.left-sb.left-r.x)/r.w,gy=(gb.top-sb.top-r.y)/r.h;
+  var gw=gb.width/r.w,gh=gb.height/r.h;
+  if(gx<0){gw+=gx;gx=0}
+  if(gy<0){gh+=gy;gy=0}
+  gw=Math.min(1-gx,gw);gh=Math.min(1-gy,gh);
+  if(gw<0.05||gh<0.05){gx=0;gy=0;gw=1;gh=1}
+  try{
+    mCx.drawImage(video,gx*video.videoWidth,gy*video.videoHeight,
+      gw*video.videoWidth,gh*video.videoHeight,0,0,mCv.width,mCv.height);
+    var d=mCx.getImageData(0,0,mCv.width,mCv.height).data;
+  }catch(e){return}
+  var n=mCv.width*mCv.height,cur=new Uint8Array(n),i,j;
+  for(i=0,j=0;j<n;i+=4,j++)cur[j]=(d[i]*77+d[i+1]*151+d[i+2]*28)>>8;
+  if(prevF){
+    var sum=0,v;
+    for(j=0;j<n;j++){v=cur[j]-prevF[j];sum+=v<0?-v:v}
+    onMotion(sum/n);
+  }
+  prevF=cur;
+}
+function onMotion(m){
+  var moveTh=14-(S.sens||5),stillTh=moveTh*0.4;
+  if(autoState==='idle'){
+    if(m>moveTh){autoState='armed';stillN=0;autoBadge('構え待ち')}
+    else autoBadge('待機中');
+    return;
+  }
+  if(m<stillTh){
+    stillN++;
+    autoBadge('静止 '+Math.min(6,stillN)+'/6');
+    if(stillN>=6){
+      autoState='idle';stillN=0;prevF=null;
+      if($('#rec').disabled){autoBadge('傾き待ち');return}
+      autoBadge('開始');
+      tapRec();
+    }
+  }else{
+    stillN=0;autoBadge('構え待ち');
+  }
 }
 
 /* ============ storage (IndexedDB + fallback) ============ */
@@ -610,6 +695,7 @@ var sgFace=seg('#segFace',function(){return S.face},function(v){if(S.face!==v){S
 var sgLock=seg('#segLock',function(){return S.lock?1:0},function(v){S.lock=v==='1'});
 var sgDur=seg('#segDur',function(){return S.dur},function(v){S.dur=+v});
 var sgCd=seg('#segCd',function(){return S.cd},function(v){S.cd=+v});
+var sgAuto=seg('#segAuto',function(){return S.auto},function(v){S.auto=v;autoReset(false)});
 var sgCut=seg('#segCut',function(){return S.cut?1:0},function(v){S.cut=v==='1';reCut()});
 
 function rng(sel,vsel,get,set,fmt){
@@ -623,6 +709,7 @@ var rScale=rng('#rScale','#vScale',function(){return Math.round(S.scale*100)},fu
 var rOp=rng('#rOp','#vOp',function(){return Math.round(S.op*100)},function(v){S.op=v/100},function(v){return v+'%'});
 var rGop=rng('#rGop','#vGop',function(){return Math.round(S.gop*100)},function(v){S.gop=v/100},function(v){return v+'%'});
 var rTol=rng('#rTol','#vTol',function(){return S.tol},function(v){S.tol=v},function(v){return '±'+(v/10).toFixed(1)+'°'});
+var rSens=rng('#rSens','#vSens',function(){return S.sens},function(v){S.sens=v},function(v){return v+''});
 $('#rZoom').addEventListener('input',function(){
   S.zoom=+this.value;$('#vZoom').textContent='×'+S.zoom.toFixed(1);applyZoom(S.zoom);
 });
@@ -630,7 +717,7 @@ $('#rZoom').addEventListener('change',save);
 
 function syncSheet(){
   sgSlot.sync();sgGuide.sync();sgFace.sync();sgLock.sync();sgDur.sync();sgCd.sync();sgCut.sync();
-  rScale.sync();rOp.sync();rGop.sync();rTol.sync();
+  rScale.sync();rOp.sync();rGop.sync();rTol.sync();rSens.sync();sgAuto.sync();autoBadge(autoState==='armed'?'構え待ち':'待機中');
 }
 function applyAll(){
   if(S.guide!=='front'&&S.guide!=='dtl'&&S.guide!=='img')S.guide='dtl';
@@ -848,6 +935,8 @@ $('#gateBtn').onclick=async function(){
     await askTilt();
     started=true;
     $('#gate').style.display='none';
+    autoReset(false);
+    if(!autoTimer)autoTimer=setInterval(autoTick,150);
     try{if(navigator.wakeLock)navigator.wakeLock.request('screen').catch(function(){})}catch(e){}
   }catch(e){
     this.disabled=false;this.textContent='もう一度試す';
@@ -972,7 +1061,13 @@ function pick(c){
   lines=[];sizeCanvas();renderList();
 }
 function setCompare(c){
-  if(cmpId===c.id){cmpId=null;rv2.style.opacity=0;if(cmpURL){URL.revokeObjectURL(cmpURL);cmpURL=null}rv2.removeAttribute('src');renderList();return}
+  if(cmpId===c.id){
+    cmpId=null;rv2.style.opacity=0;
+    if(cmpURL){URL.revokeObjectURL(cmpURL);cmpURL=null}
+    rv2.removeAttribute('src');
+    split=false;$('#rStage').classList.remove('split');$('#rSplit').textContent='重ね';
+    sizeCanvas();renderList();return;
+  }
   cmpId=c.id;
   if(cmpURL)URL.revokeObjectURL(cmpURL);
   cmpURL=URL.createObjectURL(c.blob);
@@ -1037,53 +1132,140 @@ $('#rGhost').onclick=function(){
   try{setGhost(c.toDataURL('image/jpeg',.55));S.showGhost=true;save();applyAll();
       $('#rGhost').textContent='設定済';setTimeout(function(){$('#rGhost').textContent='ゴースト設定'},1500);}catch(e){}
 };
+function dl(blob,name){
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name;
+  document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},5000);
+}
+/* still frame with the drawings burned in */
+$('#rImg').onclick=function(){
+  if(!cur||!rv.videoWidth){toast('映像がありません');return}
+  var W=rv.videoWidth,H=rv.videoHeight;
+  var c=document.createElement('canvas');c.width=W;c.height=H;
+  var x=c.getContext('2d');
+  x.drawImage(rv,0,0,W,H);
+  paintShapes(x,W,H,W/(rc.width/(window.devicePixelRatio||1)));
+  c.toBlob(function(b){
+    if(!b){toast('画像を作成できませんでした');return}
+    dl(b,'swing_'+cur.id+'_'+Math.round(rv.currentTime*100)+'.png');
+    toast('画像を保存しました');
+  },'image/png');
+};
+/* clip export: re-encode with the overlay only when there is something to burn */
+var burning=false;
 $('#rSave').onclick=function(){
   if(!cur)return;
+  if(burning){toast('書き出し中です');return}
   var ext=(cur.type||'').indexOf('mp4')>=0?'mp4':'webm';
-  var a=document.createElement('a');
-  a.href=URL.createObjectURL(cur.blob);
-  a.download='swing_'+cur.id+'.'+ext;
-  document.body.appendChild(a);a.click();
-  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},4000);
+  if(!lines.length){dl(cur.blob,'swing_'+cur.id+'.'+ext);toast('動画を保存しました');return}
+  if(!rv.videoWidth){toast('映像がありません');return}
+  var W=rv.videoWidth,H=rv.videoHeight;
+  var c=document.createElement('canvas');c.width=W;c.height=H;
+  var x=c.getContext('2d');
+  var st=c.captureStream?c.captureStream(30):null;
+  var m=mime();
+  if(!st||m===null){
+    dl(cur.blob,'swing_'+cur.id+'.'+ext);
+    toast('線の焼き込みに未対応のため、元の動画を保存しました');
+    return;
+  }
+  var rec;
+  try{rec=new MediaRecorder(st,m?{mimeType:m,videoBitsPerSecond:8000000}:{})}
+  catch(e){dl(cur.blob,'swing_'+cur.id+'.'+ext);toast('元の動画を保存しました');return}
+  var parts=[],raf=0,k=W/(rc.width/(window.devicePixelRatio||1));
+  rec.ondataavailable=function(e){if(e.data&&e.data.size)parts.push(e.data)};
+  rec.onstop=function(){
+    burning=false;
+    $('#rSave').textContent='動画';
+    cancelAnimationFrame(raf);
+    var t=rec.mimeType||'video/webm';
+    var b=new Blob(parts,{type:t});
+    dl(b,'swing_'+cur.id+'_lines.'+(t.indexOf('mp4')>=0?'mp4':'webm'));
+    toast('線入りの動画を保存しました');
+  };
+  function frame(){
+    try{x.drawImage(rv,0,0,W,H);paintShapes(x,W,H,k)}catch(e){}
+    raf=requestAnimationFrame(frame);
+  }
+  function finish(){
+    rv.removeEventListener('ended',finish);
+    setTimeout(function(){try{rec.stop()}catch(e){}},250);
+  }
+  burning=true;
+  $('#rSave').textContent='書出中';
+  rv.pause();rv.currentTime=0;rv.playbackRate=1;
+  rv.addEventListener('ended',finish);
+  rec.start();
+  frame();
+  rv.play().catch(function(){finish()});
+};
+/* side-by-side vs overlay comparison */
+var split=false;
+$('#rSplit').onclick=function(){
+  if(!cmpId){toast('比較する動画を下の一覧から選んでください');return}
+  split=!split;
+  this.textContent=split?'並べ':'重ね';
+  $('#rStage').classList.toggle('split',split);
+  rv2.style.opacity=split?1:.5;
+  sizeCanvas();
 };
 
 /* --- line drawing --- */
+/* the canvas is pinned to the letterboxed video image, not the whole stage,
+   so drawing coordinates are relative to the footage itself and survive
+   both resizing and burn-in export */
 function sizeCanvas(){
-  var r=rc.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
-  rc.width=Math.round(r.width*dpr);rc.height=Math.round(r.height*dpr);
-  rctx.setTransform(dpr,0,0,dpr,0,0);redraw();
+  var sb=$('#rStage').getBoundingClientRect();
+  var vw=rv.videoWidth||9,vh=rv.videoHeight||16;
+  var s=Math.min(sb.width/vw,sb.height/vh);
+  var w=vw*s,h=vh*s;
+  if(split){w=Math.min(w,sb.width/2);h=w*vh/vw;}
+  var left=split?(sb.width/4-w/2):(sb.width-w)/2, top=(sb.height-h)/2;
+  rc.style.left=left+'px';rc.style.top=top+'px';
+  rc.style.width=w+'px';rc.style.height=h+'px';
+  var dpr=window.devicePixelRatio||1;
+  rc.width=Math.max(1,Math.round(w*dpr));rc.height=Math.max(1,Math.round(h*dpr));
+  rctx.setTransform(dpr,0,0,dpr,0,0);
+  redraw();
 }
-window.addEventListener('resize',function(){if($('#reviewScreen').classList.contains('on'))sizeCanvas()});
-function redraw(){
-  var w=rc.width/(window.devicePixelRatio||1),h=rc.height/(window.devicePixelRatio||1);
-  rctx.clearRect(0,0,w,h);
-  var DW=2.6;
-  rctx.lineCap='round';rctx.lineJoin='round';
-  rctx.shadowColor='rgba(0,0,0,.85)';rctx.shadowBlur=3;
+/* one painter for the screen and for the exported frame */
+function paintShapes(ctx,w,h,k){
+  ctx.lineCap='round';ctx.lineJoin='round';
+  ctx.shadowColor='rgba(0,0,0,.85)';ctx.shadowBlur=3*k;
   var arr=lines.concat(drawing?[drawing]:[]);
   arr.forEach(function(s){
-    rctx.beginPath();rctx.strokeStyle=s.c||'#3ddc84';rctx.lineWidth=s.w||DW;
+    ctx.beginPath();
+    ctx.strokeStyle=s.c||'#3ddc84';
+    ctx.lineWidth=(s.w||2.6)*k;
     if(s.t==='free'){
       var p=s.pts,i;
       if(!p.length)return;
-      rctx.moveTo(p[0][0]*w,p[0][1]*h);
+      ctx.moveTo(p[0][0]*w,p[0][1]*h);
       if(p.length<3){
-        for(i=1;i<p.length;i++)rctx.lineTo(p[i][0]*w,p[i][1]*h);
+        for(i=1;i<p.length;i++)ctx.lineTo(p[i][0]*w,p[i][1]*h);
       }else{
-        /* quadratic through midpoints keeps a hand-drawn stroke smooth */
         for(i=1;i<p.length-1;i++){
-          rctx.quadraticCurveTo(p[i][0]*w,p[i][1]*h,
+          ctx.quadraticCurveTo(p[i][0]*w,p[i][1]*h,
             (p[i][0]+p[i+1][0])/2*w,(p[i][1]+p[i+1][1])/2*h);
         }
-        rctx.lineTo(p[p.length-1][0]*w,p[p.length-1][1]*h);
+        ctx.lineTo(p[p.length-1][0]*w,p[p.length-1][1]*h);
       }
     }else if(s.t==='circle'){
-      rctx.ellipse(s.cx*w,s.cy*h,Math.abs(s.rx)*w,Math.abs(s.ry)*h,0,0,Math.PI*2);
+      ctx.ellipse(s.cx*w,s.cy*h,Math.abs(s.rx)*w,Math.abs(s.ry)*h,0,0,Math.PI*2);
     }else{
-      rctx.moveTo(s.x1*w,s.y1*h);rctx.lineTo(s.x2*w,s.y2*h);
+      ctx.moveTo(s.x1*w,s.y1*h);ctx.lineTo(s.x2*w,s.y2*h);
     }
-    rctx.stroke();
+    ctx.stroke();
   });
+}
+window.addEventListener('resize',function(){if($('#reviewScreen').classList.contains('on'))sizeCanvas()});
+function redraw(){
+  var dpr=window.devicePixelRatio||1;
+  var w=rc.width/dpr,h=rc.height/dpr;
+  rctx.clearRect(0,0,w,h);
+  paintShapes(rctx,w,h,1);
 }
 var WIDTHS=[{n:'細',v:1.5},{n:'中',v:2.6},{n:'太',v:4.4}],wIdx=1;
 $('#rWidth').onclick=function(){
@@ -1171,6 +1353,9 @@ rc.addEventListener('pointercancel',function(){drawing=null;redraw()});
   prepRef();prepFront();
   $('#segSpeed').querySelector('button').classList.add('on');
   $('#rColors').querySelector('button').classList.add('on');
+  if('serviceWorker' in navigator&&location.protocol==='https:'){
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  }
 })();
 })();
 </script>

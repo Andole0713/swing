@@ -1,0 +1,11 @@
+{
+  "name": "SwingFrame — ゴルフスイング撮影",
+  "short_name": "SwingFrame",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "ja"
+}
