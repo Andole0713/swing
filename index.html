@@ -352,7 +352,9 @@ function layout(){
   var h=S.scale*r.h,w=h*gAR;
   if(w>r.w){w=r.w;h=w/gAR;}
   guide.style.height=h+'px';guide.style.width=w+'px';
-  guide.style.left=(r.x+S.cx*r.w-w*gAX)+"px";
+  /* scaleX(-1) flips about the box centre, so the body anchor flips with it */
+  var ax=S.mirror?1-gAX:gAX;
+  guide.style.left=(r.x+S.cx*r.w-w*ax)+"px";
   guide.style.top=(r.y+S.cy*r.h-h/2)+'px';
   guide.style.opacity=S.op;
   guide.style.transform=S.mirror?'scaleX(-1)':'none';
