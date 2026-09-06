@@ -123,42 +123,87 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 .hd{font-size:10.5px;color:var(--dim);letter-spacing:.14em;margin:18px 0 2px}
 .note{font-size:11.5px;color:var(--dim);line-height:1.75;padding:8px 0 0}
 
-/* ---------- review ---------- */
-#reviewScreen{background:#000}
-.rbar{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;
-  border-bottom:1px solid var(--line);flex:0 0 auto}
-.rbar .t{flex:1;font-size:13px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rbar button{font-size:13px;color:var(--accent);padding:6px 4px}
-.rbar button.del{color:var(--bad)}
-#rStage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden;touch-action:none}
+/* ---------- review (full-bleed video, floating controls) ---------- */
+#reviewScreen{background:#000;display:none}
+#reviewScreen.on{display:block}
+#rStage{position:absolute;inset:0;background:#000;overflow:hidden;touch-action:none}
 #rStage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:transparent}
 #rVideo2{opacity:0;pointer-events:none}
 #rStage.split #rVideo{left:0;width:50%}
 #rStage.split #rVideo2{left:50%;width:50%;opacity:1}
-#rStage.split:after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;
-  background:rgba(255,255,255,.25)}
-#rCanvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#rStage.split:after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.25)}
+#rCanvas{position:absolute;inset:0;touch-action:none}
 #rEmpty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   color:var(--dim);font-size:13px;text-align:center;padding:20px}
-#rCtrl{flex:0 0 auto;padding:6px 14px 8px;border-top:1px solid var(--line)}
-#rSeek{width:100%;display:block}
-.rrow{display:flex;gap:6px;align-items:center;margin-top:5px}
-.rrow button{padding:9px 0;flex:1;border-radius:10px;background:var(--chip);font-size:12px;text-align:center}
-.rrow button.on{background:rgba(61,220,132,.18);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(61,220,132,.5)}
-#rTime{flex:0 0 84px;text-align:center;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
-.cmplb{flex:0 0 auto;font-size:11px;color:var(--dim);padding:0 4px;align-self:center}
-#rCmpRow button{font-size:11.5px}
-#rColors{gap:8px}
-#rColors button{flex:1;height:26px;padding:0;border-radius:8px;
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
+
+#rTop{position:absolute;top:0;left:0;right:0;z-index:5;
+  display:flex;align-items:center;gap:6px;
+  padding:calc(env(safe-area-inset-top) + 8px) 10px 22px;
+  background:linear-gradient(rgba(0,0,0,.62),rgba(0,0,0,0))}
+#rTop .t{flex:1;font-size:11.5px;color:#cfd6de;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  text-shadow:0 1px 3px rgba(0,0,0,.9)}
+#rTop button{font-size:12px;color:var(--accent);padding:6px 7px;border-radius:8px;
+  background:rgba(14,17,21,.5);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#rTop button.del{color:var(--bad)}
+
+.rail{position:absolute;top:50%;transform:translateY(-50%);z-index:5;
+  display:flex;flex-direction:column;gap:6px}
+#rTools{left:8px}
+#rPlayRail{right:8px}
+.rbtn{width:50px;height:48px;border-radius:13px;
+  background:rgba(14,17,21,.5);border:1px solid rgba(255,255,255,.14);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  font-size:9px;color:var(--dim);padding:0}
+.rbtn i{font-style:normal;font-size:15px;line-height:1;color:#fff}
+.rbtn.on{border-color:var(--accent);color:var(--accent);background:rgba(61,220,132,.22)}
+.rbtn.on i{color:var(--accent)}
+.rbtn:disabled{opacity:.4}
+
+.pop{position:absolute;left:64px;top:50%;transform:translateY(-50%);z-index:6;
+  display:none;flex-direction:column;gap:6px;padding:7px;border-radius:13px;
+  background:rgba(14,17,21,.78);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.pop.on{display:flex}
+#rDraw button{width:54px;height:44px;border-radius:10px;background:var(--chip);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  font-size:9px;color:var(--dim);padding:0}
+#rDraw button i{font-style:normal;font-size:14px;line-height:1;color:#fff}
+#rDraw button.on{background:rgba(61,220,132,.22);color:var(--accent);
+  box-shadow:inset 0 0 0 1px rgba(61,220,132,.55)}
+#rDraw button.on i{color:var(--accent)}
+#rColors button{width:30px;height:30px;padding:0;border-radius:9px;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.3)}
 #rColors button.on{box-shadow:inset 0 0 0 2px #0e1216,0 0 0 2px #fff}
-#rList{flex:0 0 auto;max-height:24vh;overflow-y:auto;border-top:1px solid var(--line);
-  padding:6px 10px calc(env(safe-area-inset-bottom) + 8px)}
-.clip{display:flex;align-items:center;gap:10px;padding:9px 6px;border-radius:9px;font-size:12.5px}
+
+#rBottom{position:absolute;left:0;right:0;bottom:0;z-index:5;
+  padding:26px 14px calc(env(safe-area-inset-bottom) + 10px);
+  background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.62));
+  display:flex;align-items:center;gap:10px}
+#rSeek{flex:1;min-width:0}
+#rTime{flex:0 0 auto;font-size:11px;color:#cfd6de;font-variant-numeric:tabular-nums;
+  text-shadow:0 1px 3px rgba(0,0,0,.9)}
+
+#rCmpRow{position:absolute;left:50%;transform:translateX(-50%);z-index:6;
+  bottom:calc(env(safe-area-inset-bottom) + 58px);
+  display:none;align-items:center;gap:6px;padding:6px 8px;border-radius:12px;
+  background:rgba(14,17,21,.8);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+#rCmpRow.on{display:flex}
+#rCmpRow .cmplb{font-size:10.5px;color:var(--dim);padding:0 2px}
+#rCmpRow button{font-size:11.5px;padding:7px 10px;border-radius:9px;background:var(--chip);color:var(--dim)}
+#rCmpRow button.on{background:rgba(61,220,132,.2);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(61,220,132,.5)}
+
+#rSheet{position:absolute;left:0;right:0;bottom:0;z-index:8;max-height:62%;overflow-y:auto;
+  background:var(--panel);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
+  border-top:1px solid var(--line);border-radius:18px 18px 0 0;
+  padding:0 10px calc(env(safe-area-inset-bottom) + 16px);
+  transform:translateY(101%);transition:transform .26s cubic-bezier(.3,.9,.3,1)}
+#rSheet.on{transform:none}
+#rGrip{width:38px;height:4px;border-radius:2px;background:rgba(255,255,255,.25);margin:10px auto 8px}
+.clip{display:flex;align-items:center;gap:10px;padding:11px 6px;border-radius:9px;font-size:12.5px}
 .clip.on{background:rgba(61,220,132,.12)}
 .clip .n{flex:1;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .clip .m{color:var(--dim);font-size:11px}
-.clip .cmp{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:7px;padding:4px 9px}
+.clip .cmp{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:7px;padding:5px 9px}
 .clip .cmp.on{color:var(--accent);border-color:var(--accent)}
 </style>
 </head>
@@ -259,7 +304,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <button data-v="4">4秒</button><button data-v="6">6秒</button><button data-v="8">8秒</button><button data-v="12">12秒</button>
     </div></div>
     <div class="row"><div class="lb">自動録画</div><div class="seg" id="segAuto">
-      <button data-v="off">オフ</button><button data-v="one">1回</button><button data-v="loop">連続</button>
+      <button data-v="off">オフ</button><button data-v="one">自動</button>
     </div></div>
     <div class="row"><div class="lb">検知感度</div><input type="range" id="rSens" min="1" max="10" step="1"><div class="val" id="vSens"></div></div>
     <div class="row"><div class="lb">判定方法</div><div class="seg" id="segTrig">
@@ -270,7 +315,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
     <div class="row"><div class="lb">スイング後</div><div class="seg" id="segPost">
       <button data-v="1.5">1.5秒</button><button data-v="2.5">2.5秒</button><button data-v="5">5秒</button>
     </div></div>
-    <div class="note">「自動録画」を有効にすると、構えに入った時点で録画を開始し、<b style="color:var(--fg)">スイングを検知してから指定秒数後に自動停止</b>します。スイングが検知されなかった録画は自動的に破棄されるため、誤作動しても不要な動画は残りません。「連続」なら1球ごとに自動で再開します。<br><b style="color:var(--fg)">判定方法</b>：<b style="color:var(--fg)">打球音</b>（推奨）＝人が枠に入った時点で録画を開始し、打球音がしたら指定秒数後に停止します。動きの大きさを判定に使わないため最も安定します。<b style="color:var(--fg)">動き＋音</b>＝構えてから録画を開始し、スイングの動きと衝撃音が揃った時に停止（録画時間は短くなります）。<b style="color:var(--fg)">動きのみ</b>＝音を使いません。マイクが使えない場合は自動的に「動き」側で動作します。<br><b style="color:var(--fg)">人がいるかの判定</b>：ガイド枠内が「無人の背景」とどれだけ違うかで人の有無を判断します。背景は起動後に自動記録されますが、その時に人が写っていた場合は上のボタンで記録し直してください。<br><b style="color:var(--fg)">初回の調整方法</b>：構えに入ると画面右上に「スイング待ち 4/13」のように<b style="color:var(--fg)">現在の動き値／発火しきい値</b>が出ます。1球打って、スイング時の数値がしきい値を超えていなければ検知感度を上げ、構えているだけで発火するなら下げてください。</div>
+    <div class="note">「自動録画」を有効にすると、構えに入った時点で録画を開始し、<b style="color:var(--fg)">スイングを検知してから指定秒数後に自動停止</b>します。スイングが検知されなかった録画は自動的に破棄されるため、誤作動しても不要な動画は残りません。<br><b style="color:var(--fg)">判定方法</b>：<b style="color:var(--fg)">打球音</b>（推奨）＝人が枠に入った時点で録画を開始し、打球音がしたら指定秒数後に停止します。撮影後は自動でチェック画面が開きます。動きの大きさを判定に使わないため最も安定します。<b style="color:var(--fg)">動き＋音</b>＝構えてから録画を開始し、スイングの動きと衝撃音が揃った時に停止（録画時間は短くなります）。<b style="color:var(--fg)">動きのみ</b>＝音を使いません。マイクが使えない場合は自動的に「動き」側で動作します。<br><b style="color:var(--fg)">人がいるかの判定</b>：ガイド枠内が「無人の背景」とどれだけ違うかで人の有無を判断します。背景は起動後に自動記録されますが、その時に人が写っていた場合は上のボタンで記録し直してください。<br><b style="color:var(--fg)">初回の調整方法</b>：構えに入ると画面右上に「スイング待ち 4/13」のように<b style="color:var(--fg)">現在の動き値／発火しきい値</b>が出ます。1球打って、スイング時の数値がしきい値を超えていなければ検知感度を上げ、構えているだけで発火するなら下げてください。</div>
     <div class="row"><div class="lb">カウント</div><div class="seg" id="segCd">
       <button data-v="0">なし</button><button data-v="3">3秒</button><button data-v="5">5秒</button><button data-v="10">10秒</button>
     </div></div>
@@ -287,58 +332,68 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 </div>
 
 <div id="reviewScreen" class="screen">
-  <div class="rbar">
-    <button id="rBack">‹ 撮影</button>
-    <div class="t" id="rTitle">—</div>
-    <button id="rGhost">ゴースト</button>
-    <button class="del" id="rDel">削除</button>
-  </div>
   <div id="rStage">
     <video id="rVideo2" playsinline muted></video>
-    <video id="rVideo" playsinline muted></video>
+    <video id="rVideo" playsinline></video>
     <canvas id="rCanvas"></canvas>
     <div id="rEmpty">まだ録画がありません</div>
   </div>
-  <div id="rCtrl">
-    <input type="range" id="rSeek" min="0" max="1000" value="0" step="1">
-    <div class="rrow">
-      <button id="rPlay">▶ 再生</button>
-      <button id="rPrev">◀ コマ</button>
-      <button id="rNext">コマ ▶</button>
-      <div id="rTime">0.00 / 0.00</div>
-    </div>
-    <div class="rrow" id="segSpeed">
-      <button data-v="1">1x</button><button data-v="0.5">1/2</button>
-      <button data-v="0.25">1/4</button><button data-v="0.1">1/10</button>
-    </div>
-    <div class="rrow" id="rTools">
-      <button data-m="line">直線</button>
-      <button data-m="free">フリー曲線</button>
-      <button data-m="circle">円</button>
-      <button id="rWidth">太さ 中</button>
-    </div>
-    <div class="rrow" id="rColors">
-      <button data-c="#3ddc84" style="background:#3ddc84"></button>
-      <button data-c="#ffd23d" style="background:#ffd23d"></button>
-      <button data-c="#ff6b4a" style="background:#ff6b4a"></button>
-      <button data-c="#4ac8ff" style="background:#4ac8ff"></button>
-      <button data-c="#c07bff" style="background:#c07bff"></button>
-      <button data-c="#ffffff" style="background:#ffffff"></button>
-    </div>
-    <div class="rrow">
-      <button id="rUndo">1つ戻す</button>
-      <button id="rClear">全て消去</button>
-      <button id="rImg">画像で保存</button>
-      <button id="rSave">動画で保存</button>
-    </div>
-    <div class="rrow" id="rCmpRow" style="display:none">
-      <div class="cmplb">比較表示</div>
-      <button id="rCmpOver" class="on">重ねる</button>
-      <button id="rCmpSide">並べる</button>
-      <button id="rCmpOff">比較をやめる</button>
-    </div>
+
+  <div id="rTop">
+    <button id="rBack">‹ 撮影</button>
+    <div class="t" id="rTitle">—</div>
+    <button id="rHist">一覧</button>
+    <button id="rGhost">ゴースト</button>
+    <button class="del" id="rDel">削除</button>
   </div>
-  <div id="rList"></div>
+
+  <div class="rail" id="rTools">
+    <button class="rbtn" id="rDrawBtn"><i id="drawIcon">✎</i>描画</button>
+    <button class="rbtn" id="rWidth"><i>中</i>太さ</button>
+    <button class="rbtn" id="rColBtn"><i id="colDot">●</i>色</button>
+    <button class="rbtn" id="rUndo"><i>↶</i>戻す</button>
+    <button class="rbtn" id="rClear"><i>✕</i>消去</button>
+  </div>
+
+  <div class="pop" id="rDraw">
+    <button data-m="line"><i>／</i>直線</button>
+    <button data-m="free"><i>〜</i>フリー</button>
+    <button data-m="circle"><i>○</i>円</button>
+    <button data-m=""><i>✕</i>なし</button>
+  </div>
+
+  <div class="pop" id="rColors">
+    <button data-c="#3ddc84" style="background:#3ddc84"></button>
+    <button data-c="#ffd23d" style="background:#ffd23d"></button>
+    <button data-c="#ff6b4a" style="background:#ff6b4a"></button>
+    <button data-c="#4ac8ff" style="background:#4ac8ff"></button>
+    <button data-c="#c07bff" style="background:#c07bff"></button>
+    <button data-c="#ffffff" style="background:#ffffff"></button>
+  </div>
+
+  <div class="rail" id="rPlayRail">
+    <button class="rbtn" id="rPlay"><i>▶</i>再生</button>
+    <button class="rbtn" id="rPrev"><i>◀</i>コマ</button>
+    <button class="rbtn" id="rNext"><i>▶</i>コマ</button>
+    <button class="rbtn" id="rSpeed"><i>1x</i>速度</button>
+    <button class="rbtn" id="rCmpBtn"><i>⧉</i>比較</button>
+    <button class="rbtn" id="rImg"><i>▣</i>画像</button>
+    <button class="rbtn" id="rSave"><i>⬇</i>動画</button>
+  </div>
+
+  <div id="rBottom">
+    <input type="range" id="rSeek" min="0" max="1000" value="0" step="1">
+    <div id="rTime">0.00 / 0.00</div>
+  </div>
+
+  <div id="rCmpRow">
+    <div class="cmplb">比較表示</div>
+    <button id="rCmpOver" class="on">重ねる</button>
+    <button id="rCmpSide">並べる</button>
+    <button id="rCmpOff">やめる</button>
+  </div>
+
+  <div id="rSheet"><div id="rGrip"></div><div id="rList"></div></div>
 </div>
 
 <script>
@@ -594,7 +649,7 @@ function onStop(){
   var clip={id:Date.now(),ts:new Date().toISOString(),blob:blob,guide:S.guide,
             fps:fps,slot:slot,type:type,swing:(wasAuto&&swingT>0)?swingT:null};
   addClip(clip).then(function(){
-    toast('保存しました（'+(blob.size/1048576).toFixed(1)+'MB）','確認',function(){openReview(clip.id)});
+    openReview(clip.id);
   });
   if(S.auto==='one'){S.auto='off';save();applyAll()}
   autoReset(true);
@@ -1220,6 +1275,8 @@ var clips=[],cur=null,curURL=null,cmpURL=null,cmpId=null,drawMode=null,drawColor
 function openReview(id){
   $('#camScreen').classList.remove('on');
   $('#reviewScreen').classList.add('on');
+  $('#rSheet').classList.remove('on');
+  $('#rColors').classList.remove('on');$('#rDraw').classList.remove('on');
   sizeCanvas();
   listClips().then(function(a){
     clips=a;renderList();
@@ -1245,8 +1302,8 @@ function renderList(){
     d.innerHTML='<span class="n">'+fmtTs(c.ts)+'</span>'+
       '<span class="m">'+(c.guide==='front'?'正面':'後方')+' / P'+(c.slot||1)+' / '+((c.blob.size/1048576).toFixed(1))+'MB</span>'+
       '<button class="cmp'+(cmpId===c.id?' on':'')+'">'+(cmpId===c.id?'比較中':'比較')+'</button>';
-    d.querySelector('.n').onclick=function(){pick(c)};
-    d.querySelector('.m').onclick=function(){pick(c)};
+    d.querySelector('.n').onclick=function(){pick(c);$('#rSheet').classList.remove('on')};
+    d.querySelector('.m').onclick=function(){pick(c);$('#rSheet').classList.remove('on')};
     d.querySelector('.cmp').onclick=function(e){e.stopPropagation();setCompare(c)};
     L.appendChild(d);
   });
@@ -1274,14 +1331,14 @@ function setCompare(c){
     cmpId=null;rv2.style.opacity=0;
     if(cmpURL){URL.revokeObjectURL(cmpURL);cmpURL=null}
     rv2.removeAttribute('src');
-    $('#rCmpRow').style.display='none';
+    $('#rCmpRow').classList.remove('on');
     setSplit(false);renderList();return;
   }
   cmpId=c.id;
   if(cmpURL)URL.revokeObjectURL(cmpURL);
   cmpURL=URL.createObjectURL(c.blob);
   rv2.src=cmpURL;rv2.load();
-  $('#rCmpRow').style.display='flex';
+  $('#rCmpRow').classList.add('on');
   setSplit(false);
   renderList();
 }
@@ -1291,9 +1348,9 @@ rv.addEventListener('timeupdate',function(){
   if(rv.duration)$('#rSeek').value=Math.round(rv.currentTime/rv.duration*1000);
   syncCmp();
 });
-rv.addEventListener('play',function(){$('#rPlay').textContent='❚❚ 停止';if(cmpId)rv2.play().catch(function(){})});
-rv.addEventListener('pause',function(){$('#rPlay').textContent='▶ 再生';rv2.pause()});
-rv.addEventListener('ended',function(){$('#rPlay').textContent='▶ 再生';rv2.pause()});
+rv.addEventListener('play',function(){$('#rPlay').querySelector('i').textContent='❚❚';if(cmpId)rv2.play().catch(function(){})});
+rv.addEventListener('pause',function(){$('#rPlay').querySelector('i').textContent='▶';rv2.pause()});
+rv.addEventListener('ended',function(){$('#rPlay').querySelector('i').textContent='▶';rv2.pause()});
 function syncCmp(){
   if(!cmpId||!rv2.duration)return;
   var t=Math.min(rv.currentTime,rv2.duration-0.01);
@@ -1317,12 +1374,14 @@ $('#rSeek').addEventListener('input',function(){
   if(!isFinite(rv.duration))return;
   rv.pause();rv.currentTime=rv.duration*this.value/1000;syncCmp();
 });
-$('#segSpeed').addEventListener('click',function(e){
-  var b=e.target.closest('button');if(!b)return;
-  var v=parseFloat(b.dataset.v);
+var SPEEDS=[1,0.5,0.25,0.1],sIdx=0;
+$('#rSpeed').onclick=function(){
+  sIdx=(sIdx+1)%SPEEDS.length;
+  var v=SPEEDS[sIdx];
   rv.playbackRate=v;rv2.playbackRate=v;
-  Array.prototype.forEach.call(this.querySelectorAll('button'),function(x){x.classList.toggle('on',x===b)});
-});
+  this.querySelector('i').textContent=(v===1?'1x':'1/'+Math.round(1/v));
+  this.classList.toggle('on',v!==1);
+};
 $('#rDel').onclick=function(){
   if(!cur)return;
   var id=cur.id;
@@ -1341,7 +1400,7 @@ $('#rGhost').onclick=function(){
   c.width=W;c.height=Math.round(W*rv.videoHeight/rv.videoWidth);
   c.getContext('2d').drawImage(rv,0,0,c.width,c.height);
   try{setGhost(c.toDataURL('image/jpeg',.55));S.showGhost=true;save();applyAll();
-      $('#rGhost').textContent='設定済';setTimeout(function(){$('#rGhost').textContent='ゴースト設定'},1500);}catch(e){}
+      $('#rGhost').textContent='設定済';setTimeout(function(){$('#rGhost').textContent='ゴースト'},1500);}catch(e){}
 };
 function dl(blob,name){
   var a=document.createElement('a');
@@ -1528,26 +1587,43 @@ function redraw(){
   paintShapes(rctx,w,h,1);
 }
 var WIDTHS=[{n:'細',v:1.5},{n:'中',v:2.6},{n:'太',v:4.4}],wIdx=1;
+$('#rDrawBtn').onclick=function(){$('#rColors').classList.remove('on');$('#rDraw').classList.toggle('on')};
+$('#rColBtn').onclick=function(){$('#rDraw').classList.remove('on');$('#rColors').classList.toggle('on')};
+$('#rCmpBtn').onclick=function(){
+  if(!cmpId){$('#rSheet').classList.add('on');toast('比較する動画を一覧から選んでください');return}
+  var r=$('#rCmpRow');r.classList.toggle('on');
+};
+$('#rHist').onclick=function(){$('#rSheet').classList.toggle('on')};
+$('#rGrip').onclick=function(){$('#rSheet').classList.remove('on')};
 $('#rWidth').onclick=function(){
   wIdx=(wIdx+1)%WIDTHS.length;
-  this.textContent='太さ '+WIDTHS[wIdx].n;
+  this.querySelector('i').textContent=WIDTHS[wIdx].n;
 };
-$('#rTools').addEventListener('click',function(e){
-  var b=e.target.closest('button');
-  if(!b||!b.dataset.m)return;
-  var m=b.dataset.m;
-  drawMode=(drawMode===m)?null:m;
-  Array.prototype.forEach.call(this.querySelectorAll('button'),function(x){
-    x.classList.toggle('on',x.dataset.m===drawMode);
+var TOOLICON={line:'／',free:'〜',circle:'○'};
+function syncDraw(){
+  $('#drawIcon').textContent=drawMode?TOOLICON[drawMode]:'✎';
+  $('#rDrawBtn').classList.toggle('on',!!drawMode);
+  Array.prototype.forEach.call($('#rDraw').querySelectorAll('button'),function(x){
+    x.classList.toggle('on',(x.dataset.m||null)===drawMode);
   });
+}
+$('#rDraw').addEventListener('click',function(e){
+  var b=e.target.closest('button');
+  if(!b)return;
+  var m=b.dataset.m||null;
+  drawMode=(m&&drawMode===m)?null:m;
+  syncDraw();
+  this.classList.remove('on');
 });
 $('#rColors').addEventListener('click',function(e){
   var b=e.target.closest('button');
   if(!b)return;
   drawColor=b.dataset.c;
+  $('#colDot').style.color=drawColor;
   Array.prototype.forEach.call(this.querySelectorAll('button'),function(x){
     x.classList.toggle('on',x===b);
   });
+  this.classList.remove('on');
 });
 $('#rUndo').onclick=function(){lines.pop();drawing=null;redraw()};
 $('#rClear').onclick=function(){lines=[];drawing=null;redraw()};
@@ -1593,13 +1669,14 @@ rc.addEventListener('pointercancel',function(){drawing=null;redraw()});
   var a=all();
   /* one-time migration: switch existing presets to the illustration guide,
      keeping their tilt reference, zoom, ghost and position settings */
-  if(!a.ver||a.ver<4){
-    a.ver=4;
+  if(!a.ver||a.ver<5){
+    a.ver=5;
     ['p1','p2','p3'].forEach(function(k){
       if(!a[k])return;
       if(a[k].guide!=='img')a[k].guide='dtl';
       /* re-frame: leave headroom for the club at the top of the swing */
       a[k].scale=DEF.scale;a[k].cy=DEF.cy;
+      if(a[k].auto==='loop')a[k].auto='one';   /* continuous mode removed */
     });
     put(a);
   }
@@ -1611,8 +1688,9 @@ rc.addEventListener('pointercancel',function(){drawing=null;redraw()});
     showCamError({name:'NotAllowedError'});
   applyAll();
   prepRef();prepFront();
-  $('#segSpeed').querySelector('button').classList.add('on');
   $('#rColors').querySelector('button').classList.add('on');
+  syncDraw();
+  $('#colDot').style.color='#3ddc84';
   if('serviceWorker' in navigator&&location.protocol==='https:'){
     navigator.serviceWorker.register('sw.js').catch(function(){});
   }
