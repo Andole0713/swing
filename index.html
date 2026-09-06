@@ -60,9 +60,10 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .sbtn.act{border-color:var(--accent);color:var(--accent);background:rgba(61,220,132,.14)}
 .sbtn.act i{color:var(--accent)}
 
-#bottom{position:absolute;left:0;right:0;bottom:0;padding:0 18px calc(env(safe-area-inset-bottom) + 18px);
+#bottom{position:absolute;left:0;right:0;bottom:0;padding:0 14px calc(env(safe-area-inset-bottom) + 18px);
   display:flex;align-items:center;justify-content:space-between}
-#recWrap{position:relative;width:78px;height:78px}
+#recWrap{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 18px);width:78px;height:78px}
+.bgrp{display:flex;gap:8px}
 #recRing{position:absolute;inset:-7px;width:92px;height:92px;pointer-events:none}
 #rec{position:absolute;inset:0;border-radius:50%;border:3px solid rgba(255,255,255,.85);
   display:flex;align-items:center;justify-content:center;padding:0}
@@ -266,6 +267,15 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 .clip .note{color:var(--dim);font-size:11px;flex:0 0 auto}
 .clip .thumb{width:44px;height:56px;object-fit:cover;border-radius:6px;flex:0 0 auto;background:#000}
 .clip .dl{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+#rTop button.bigback{font-size:15px;font-weight:600;padding:11px 16px;border-radius:12px;
+  background:rgba(14,17,21,.72);border:1px solid rgba(61,220,132,.4)}
+#sheetBack{position:absolute;inset:0;z-index:29;display:none;background:rgba(0,0,0,.35)}
+#sheetBack.on{display:block}
+#sheet .grab{padding:2px 0 6px;cursor:grab}
+#dests{display:flex;gap:6px;margin:2px 0 8px}
+#dests button{flex:1;padding:9px 4px;border-radius:9px;background:var(--chip);font-size:11.5px;color:var(--dim)}
+#dests button.on{background:rgba(61,220,132,.2);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(61,220,132,.5)}
+#rSavePop{width:190px}
 </style>
 </head>
 <body>
@@ -311,8 +321,9 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
   </div>
 
   <div id="bottom">
-    <button class="fbtn" id="bHome"><i>⌂</i>ホーム</button>
+    <div class="bgrp"><button class="fbtn" id="bHome"><i>⌂</i>ホーム</button>
     <button class="fbtn" id="bReview"><i>▶</i>履歴</button>
+    </div>
     <div id="recWrap">
       <svg id="recRing" viewBox="0 0 100 100">
         <circle cx="50" cy="50" r="47" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="3"/>
@@ -330,6 +341,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
   <div id="adjHint">ドラッグで移動 ／ 2本指で拡大縮小</div>
   <div id="toast"><span id="toastT"></span><button id="toastB">確認</button></div>
 
+  <div id="sheetBack"></div>
   <div id="sheet">
     <div id="grip"></div>
 
@@ -415,7 +427,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
   </div>
 
   <div id="rTop">
-    <button id="rBack">‹ 戻る</button>
+    <button id="rBack" class="bigback">‹ 戻る</button>
     <div class="t" id="rTitle">—</div>
     <button id="rHist">ライブラリ</button>
     <button id="rGhost">ゴースト</button>
@@ -461,6 +473,12 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
   </div>
 
   <div class="pop right" id="rSavePop">
+    <div class="popttl">保存先（複数選べます）</div>
+    <div id="dests">
+      <button data-d="app" class="on">アプリ</button>
+      <button data-d="dev">端末</button>
+      <button data-d="share">共有</button>
+    </div>
     <button id="rImg">画像で保存</button>
     <button id="rSave">動画を保存</button>
   </div>
@@ -1299,9 +1317,42 @@ $('#bFull').onclick=function(){
   else if(document.documentElement.requestFullscreen)document.documentElement.requestFullscreen().catch(function(){});
   setTimeout(layout,300);
 };
-$('#bSet').onclick=function(){$('#sheet').classList.add('on')};
-$('#bClose').onclick=function(){$('#sheet').classList.remove('on')};
-$('#grip').onclick=function(){$('#sheet').classList.remove('on')};
+function openSheet(v){
+  $('#sheet').classList.toggle('on',v);
+  $('#sheetBack').classList.toggle('on',v);
+}
+$('#bSet').onclick=function(){openSheet(true)};
+$('#bClose').onclick=function(){openSheet(false)};
+$('#grip').onclick=function(){openSheet(false)};
+$('#sheetBack').onclick=function(){openSheet(false)};
+/* drag the sheet down to dismiss — only when it is already scrolled to the top,
+   so the gesture never fights the sheet's own scrolling */
+(function(){
+  var sh=$('#sheet'),y0=0,dragging=false,moved=0;
+  sh.addEventListener('pointerdown',function(e){
+    if(sh.scrollTop>2)return;
+    y0=e.clientY;dragging=true;moved=0;
+  });
+  sh.addEventListener('pointermove',function(e){
+    if(!dragging)return;
+    moved=e.clientY-y0;
+    if(moved>0){
+      if(sh.scrollTop>2){dragging=false;sh.style.transform='';return}
+      sh.style.transform='translateY('+moved+'px)';
+      sh.style.transition='none';
+    }
+  });
+  function end(){
+    if(!dragging)return;
+    dragging=false;
+    sh.style.transition='';
+    sh.style.transform='';
+    if(moved>90)openSheet(false);
+    moved=0;
+  }
+  sh.addEventListener('pointerup',end);
+  sh.addEventListener('pointercancel',end);
+})();
 $('#bReset').onclick=function(){S.cx=.5;S.cy=.5;S.scale=.82;save();applyAll()};
 $('#bRef').onclick=function(){
   if(!haveTilt){toast('傾きセンサーが使えません');return}
@@ -1416,11 +1467,24 @@ function refreshHome(){
     $('#hLibSub').textContent=(v||i)?('動画 '+v+'件 ／ 画像 '+i+'件'):'保存した動画と画像';
   }).catch(function(){});
 }
-$('#hShoot').onclick=function(){
+$('#hShoot').onclick=function(){showCam()};
+/* a hidden video element can be suspended by the browser; coming back to the
+   camera has to wake it, and restart the capture if the track really died */
+function showCam(){
   hideScreens();
   $('#camScreen').classList.add('on');
-  setTimeout(layout,60);
-};
+  setTimeout(function(){
+    layout();
+    var tr=stream?stream.getVideoTracks()[0]:null;
+    if(started&&(!stream||!tr||tr.readyState==='ended')){
+      startCam().then(function(){autoReset(false);warmUntil=Date.now()+1500}).catch(function(){});
+      return;
+    }
+    if(video.paused)video.play().catch(function(){});
+    prevF=null;warmUntil=Date.now()+800;
+    layout();
+  },60);
+}
 $('#hLib').onclick=function(){openReview(null,'home')};
 $('#bHome').onclick=function(){
   hideScreens();$('#homeScreen').classList.add('on');refreshHome();
@@ -1443,7 +1507,7 @@ $('#rBack').onclick=function(){
   rv.pause();rv2.pause();
   hideScreens();
   if(reviewFrom==='home'){$('#homeScreen').classList.add('on');refreshHome()}
-  else{$('#camScreen').classList.add('on');setTimeout(layout,60)}
+  else{showCam()}
 };
 function fmtTs(iso){
   var d=new Date(iso);
@@ -1462,7 +1526,7 @@ function renderList(){
       d.innerHTML='<img class="thumb" src="'+u+'">'+
         '<span class="n">'+fmtTs(s.ts)+(s.note?'<br><span class="m">'+esc(s.note)+'</span>':'')+'</span>'+
         '<button class="dl">端末に保存</button><button class="cmp">削除</button>';
-      d.querySelector('.dl').onclick=function(){dl(s.blob,'swing_'+s.id+'.png');toast('端末に保存しました')};
+      d.querySelector('.dl').onclick=function(){saveTo(s.blob,'swing_'+s.id+'.png','image',{note:s.note})};
       d.querySelector('.cmp').onclick=function(){delShot(s.id).then(loadLib)};
       L.appendChild(d);
     });
@@ -1597,6 +1661,45 @@ function dl(blob,name){
   document.body.appendChild(a);a.click();
   setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},5000);
 }
+/* destinations: app library / device download / OS share sheet.
+   Any combination can be selected; each is attempted independently. */
+var dests={app:true,dev:false,share:false};
+$('#dests').addEventListener('click',function(e){
+  var b=e.target.closest('button');if(!b)return;
+  var d=b.dataset.d;
+  dests[d]=!dests[d];
+  if(!dests.app&&!dests.dev&&!dests.share){dests[d]=true;return}
+  b.classList.toggle('on',dests[d]);
+});
+function canShare(file){
+  try{return !!(navigator.canShare&&navigator.share&&navigator.canShare({files:[file]}))}
+  catch(e){return false}
+}
+function saveTo(blob,name,kind,meta){
+  var done=[],pend=[];
+  if(dests.app){
+    if(kind==='image'){
+      pend.push(addShot({id:Date.now(),ts:new Date().toISOString(),blob:blob,
+        note:(meta&&meta.note)||'',from:(meta&&meta.from)||null}).then(function(){done.push('アプリ')}));
+    }else{
+      pend.push(addClip({id:Date.now(),ts:new Date().toISOString(),blob:blob,
+        guide:(meta&&meta.guide)||S.guide,fps:fps,slot:slot,type:blob.type,
+        swing:null,note:(meta&&meta.note)||'',fav:false,cut:true}).then(function(){done.push('アプリ')}));
+    }
+  }
+  if(dests.dev){try{dl(blob,name);done.push('端末')}catch(e){}}
+  if(dests.share){
+    try{
+      var f=new File([blob],name,{type:blob.type});
+      if(canShare(f))pend.push(navigator.share({files:[f]}).then(function(){done.push('共有')}).catch(function(){}));
+      else{dl(blob,name);done.push('端末（共有は非対応）')}
+    }catch(e){}
+  }
+  return Promise.all(pend).then(function(){
+    toast(done.length?(done.join('と')+'に保存しました'):'保存できませんでした');
+    if(dests.app)refreshHome();
+  });
+}
 /* still frame with the drawings burned in */
 $('#rImg').onclick=function(){
   closePops();
@@ -1608,9 +1711,7 @@ $('#rImg').onclick=function(){
   paintShapes(x,W,H,W/(rc.width/(window.devicePixelRatio||1)));
   c.toBlob(function(b){
     if(!b){toast('画像を作成できませんでした');return}
-    addShot({id:Date.now(),ts:new Date().toISOString(),blob:b,note:(cur.note||''),from:cur.id}).then(function(){
-      toast('画像をライブラリに保存しました','見る',function(){libTab='img';$('.libtab').querySelector('button[data-t="img"]').click();$('#rSheet').classList.add('on')});
-    });
+    saveTo(b,'swing_'+cur.id+'_'+Math.round(rv.currentTime*100)+'.png','image',{note:cur.note||'',from:cur.id});
   },'image/png');
 };
 /* clip export: re-encode with the overlay only when there is something to burn */
@@ -1646,8 +1747,7 @@ $('#rSave').onclick=function(){
   var t1=sw?Math.min(dur||1e9,sw+(S.post||5)):(dur||0);
   var needTrim=sw&&(t0>0.3||(dur&&t1<dur-0.3));
   if(!lines.length&&!needTrim){
-    dl(cur.blob,'swing_'+cur.id+'.'+ext);
-    toast('動画を保存しました');
+    saveTo(cur.blob,'swing_'+cur.id+'.'+ext,'video',{guide:cur.guide,note:cur.note});
     return;
   }
   if(!rv.videoWidth){toast('映像がありません');return}
@@ -1657,8 +1757,7 @@ $('#rSave').onclick=function(){
   var st=c.captureStream?c.captureStream(30):null;
   var m=mime();
   if(!st||m===null){
-    dl(cur.blob,'swing_'+cur.id+'.'+ext);
-    toast('切り出しに未対応のため、元の動画を保存しました');
+    saveTo(cur.blob,'swing_'+cur.id+'.'+ext,'video',{guide:cur.guide,note:cur.note});
     return;
   }
   var ad=reviewAudio();
@@ -1667,7 +1766,7 @@ $('#rSave').onclick=function(){
   var outStream=new MediaStream(tracks);
   var rec;
   try{rec=new MediaRecorder(outStream,m?{mimeType:m,videoBitsPerSecond:8000000}:{})}
-  catch(e){dl(cur.blob,'swing_'+cur.id+'.'+ext);toast('元の動画を保存しました');return}
+  catch(e){saveTo(cur.blob,'swing_'+cur.id+'.'+ext,'video',{guide:cur.guide,note:cur.note});return}
   var parts=[],raf=0,k=W/(rc.width/(window.devicePixelRatio||1)),stopped=false;
   rec.ondataavailable=function(e){if(e.data&&e.data.size)parts.push(e.data)};
   rec.onstop=function(){
@@ -1677,8 +1776,7 @@ $('#rSave').onclick=function(){
     rv.pause();
     var t=rec.mimeType||'video/webm';
     var b=new Blob(parts,{type:t});
-    dl(b,'swing_'+cur.id+'_cut.'+(t.indexOf('mp4')>=0?'mp4':'webm'));
-    toast('打球音の'+PRE+'秒前〜'+(S.post||5)+'秒後を保存しました');
+    saveTo(b,'swing_'+cur.id+'_cut.'+(t.indexOf('mp4')>=0?'mp4':'webm'),'video',{guide:cur.guide,note:cur.note});
   };
   function frame(){
     try{x.drawImage(rv,0,0,W,H);paintShapes(x,W,H,k)}catch(e){}
