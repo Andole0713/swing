@@ -262,10 +262,15 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <button data-v="off">オフ</button><button data-v="one">1回</button><button data-v="loop">連続</button>
     </div></div>
     <div class="row"><div class="lb">検知感度</div><input type="range" id="rSens" min="1" max="10" step="1"><div class="val" id="vSens"></div></div>
-    <div class="row"><div class="lb">スイング後</div><div class="seg" id="segPost">
-      <button data-v="1.5">1.5秒</button><button data-v="2.5">2.5秒</button><button data-v="4">4秒</button>
+    <div class="row"><div class="lb">判定方法</div><div class="seg" id="segTrig">
+      <button data-v="sound">打球音</button><button data-v="both">動き＋音</button><button data-v="motion">動きのみ</button>
     </div></div>
-    <div class="note">「自動録画」を有効にすると、構えに入った時点で録画を開始し、<b style="color:var(--fg)">スイングを検知してから指定秒数後に自動停止</b>します。スイングが検知されなかった録画は自動的に破棄されるため、誤作動しても不要な動画は残りません。「連続」なら1球ごとに自動で再開します。<br><b style="color:var(--fg)">初回の調整方法</b>：構えに入ると画面右上に「スイング待ち 4/13」のように<b style="color:var(--fg)">現在の動き値／発火しきい値</b>が出ます。1球打って、スイング時の数値がしきい値を超えていなければ検知感度を上げ、構えているだけで発火するなら下げてください。</div>
+    <div class="row"><div class="lb">音の感度</div><input type="range" id="rAsens" min="1" max="10" step="1"><div class="val" id="vAsens"></div></div>
+    <button class="act-btn" id="bRef2">無人の背景を記録し直す</button>
+    <div class="row"><div class="lb">スイング後</div><div class="seg" id="segPost">
+      <button data-v="1.5">1.5秒</button><button data-v="2.5">2.5秒</button><button data-v="5">5秒</button>
+    </div></div>
+    <div class="note">「自動録画」を有効にすると、構えに入った時点で録画を開始し、<b style="color:var(--fg)">スイングを検知してから指定秒数後に自動停止</b>します。スイングが検知されなかった録画は自動的に破棄されるため、誤作動しても不要な動画は残りません。「連続」なら1球ごとに自動で再開します。<br><b style="color:var(--fg)">判定方法</b>：<b style="color:var(--fg)">打球音</b>（推奨）＝人が枠に入った時点で録画を開始し、打球音がしたら指定秒数後に停止します。動きの大きさを判定に使わないため最も安定します。<b style="color:var(--fg)">動き＋音</b>＝構えてから録画を開始し、スイングの動きと衝撃音が揃った時に停止（録画時間は短くなります）。<b style="color:var(--fg)">動きのみ</b>＝音を使いません。マイクが使えない場合は自動的に「動き」側で動作します。<br><b style="color:var(--fg)">人がいるかの判定</b>：ガイド枠内が「無人の背景」とどれだけ違うかで人の有無を判断します。背景は起動後に自動記録されますが、その時に人が写っていた場合は上のボタンで記録し直してください。<br><b style="color:var(--fg)">初回の調整方法</b>：構えに入ると画面右上に「スイング待ち 4/13」のように<b style="color:var(--fg)">現在の動き値／発火しきい値</b>が出ます。1球打って、スイング時の数値がしきい値を超えていなければ検知感度を上げ、構えているだけで発火するなら下げてください。</div>
     <div class="row"><div class="lb">カウント</div><div class="seg" id="segCd">
       <button data-v="0">なし</button><button data-v="3">3秒</button><button data-v="5">5秒</button><button data-v="10">10秒</button>
     </div></div>
@@ -344,7 +349,7 @@ var $=function(s){return document.querySelector(s)};
 /* ============ state ============ */
 var DEF={guide:'dtl',mirror:false,scale:.5,cx:.5,cy:.62,op:.6,zoom:null,face:'environment',
          refB:90,refG:0,tol:20,dur:8,cd:3,lock:true,ghost:null,gop:.35,showGhost:false,
-         img:null,cut:true,auto:'off',sens:5,post:2.5};
+         img:null,cut:true,auto:'off',sens:5,post:5,trig:'sound',asens:5};
 var gAR=0.5,gAX=0.5;
 /* where the body sits inside each guide image, as a fraction of its width.
    the DTL art reserves its right half for the club, so its body is left of centre */
@@ -394,10 +399,19 @@ async function startCam(){
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)
     throw new Error('この環境ではカメラAPIが使えません。HTTPS（またはlocalhost）で開いてください。');
   if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}
-  stream=await navigator.mediaDevices.getUserMedia({
-    audio:false,
-    video:{facingMode:{ideal:S.face},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:60}}
-  });
+  var vc={facingMode:{ideal:S.face},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:60}};
+  /* the mic drives impact detection, but a denied mic must not cost us the
+     camera — fall back to video only */
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},
+      video:vc
+    });
+  }catch(e){
+    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:vc});
+  }
+  hasMic=stream.getAudioTracks().length>0;
+  startAudio(stream);
   video.srcObject=stream;
   try{await video.play()}catch(e){}
   track=stream.getVideoTracks()[0];
@@ -545,8 +559,8 @@ function beginRec(){
   if(autoRec){
     /* auto mode runs open-ended: the swing decides when to stop */
     swingT=-1;baseM=0;baseN=0;hotN=0;
-    recTimer=setTimeout(function(){discard=true;stopRec()},MAXREC*1000);
-    autoBadge('スイング待ち');
+    recTimer=setTimeout(function(){discard=true;stopRec()},(soundOnly()?MAXREC_SND:MAXREC)*1000);
+    autoBadge(soundOnly()?'録画中':'スイング待ち');
   }else{
     recTimer=setTimeout(stopRec,S.dur*1000);
   }
@@ -595,8 +609,12 @@ var mCv=document.createElement('canvas'),mCx=null,prevF=null;
 mCv.width=48;mCv.height=84;
 try{mCx=mCv.getContext('2d',{willReadFrequently:true})}catch(e){mCx=mCv.getContext('2d')}
 var autoState='idle',stillN=0,moveN=0,coolUntil=0,autoTimer=null,warmUntil=0;
-var autoRec=false,discard=false,swingT=-1,baseM=0,baseN=0,hotN=0,peakM=0;
+var autoRec=false,discard=false,swingT=-1,baseM=0,baseN=0,hotN=0,hotStart=0;
+var emptyRef=null,refSig='',occ=-1,quietMs=0,presN=0;
+/* sound-only needs a working mic; without one it degrades to the motion path */
+function soundOnly(){return S.trig==='sound'&&!!anal}
 var MAXREC=15;   /* give up on a swing after this many seconds */
+var MAXREC_SND=30;
 
 function autoBadge(txt){
   var b=$('#bAuto');
@@ -605,12 +623,46 @@ function autoBadge(txt){
   b.textContent='自動 '+txt;
 }
 function autoReset(hard){
-  autoState='idle';stillN=0;moveN=0;prevF=null;
+  autoState='idle';stillN=0;moveN=0;presN=0;prevF=null;quietMs=0;
   if(hard)coolUntil=Date.now()+2500;
   autoBadge('待機中');
 }
-function sampleMotion(){
-  if(!video.videoWidth||!mCx)return -1;
+/* ---- impact sound ----
+   A struck ball is a sharp transient far above the room's noise floor; a
+   practice swing is only air. Watching the peak at 50Hz catches the crack
+   regardless of framing, light or how small the ball looks. */
+var actx=null,anal=null,abuf=null,aPeak=0,aRecent=0,aFloor=0.02,lastImpact=0,aTimer=null,hasMic=false;
+function startAudio(st){
+  if(!st||!st.getAudioTracks||!st.getAudioTracks().length){anal=null;return}
+  try{
+    var AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC)return;
+    if(!actx)actx=new AC();
+    if(actx.state==='suspended')actx.resume();
+    var src=actx.createMediaStreamSource(st);
+    anal=actx.createAnalyser();
+    anal.fftSize=1024;anal.smoothingTimeConstant=0;
+    src.connect(anal);
+    abuf=new Uint8Array(anal.fftSize);
+    if(!aTimer)aTimer=setInterval(audioTick,20);
+  }catch(e){anal=null}
+}
+function soundTh(){return 0.06+(10-(S.asens||5))*0.03}
+function audioTick(){
+  if(!anal)return;
+  anal.getByteTimeDomainData(abuf);
+  var mx=0,i,v;
+  for(i=0;i<abuf.length;i++){v=Math.abs(abuf[i]-128)/128;if(v>mx)mx=v}
+  aPeak=mx;
+  /* hold the recent maximum so a 90ms crack stays readable on screen */
+  aRecent=Math.max(mx,aRecent*0.97);
+  var th=Math.max(soundTh(),aFloor*3.5);
+  if(mx>th&&Date.now()-lastImpact>400)lastImpact=Date.now();
+  /* noise floor ignores the transient itself so one loud crack cannot
+     desensitise the detector for the next shot */
+  aFloor=aFloor*0.98+Math.min(mx,th)*0.02;
+}
+function regionRect(){
   var r=vrect(),gb=guide.getBoundingClientRect(),sb=stage.getBoundingClientRect();
   var gx=(gb.left-sb.left-r.x)/r.w,gy=(gb.top-sb.top-r.y)/r.h;
   var gw=gb.width/r.w,gh=gb.height/r.h;
@@ -618,14 +670,26 @@ function sampleMotion(){
   if(gy<0){gh+=gy;gy=0}
   gw=Math.min(1-gx,gw);gh=Math.min(1-gy,gh);
   if(gw<0.05||gh<0.05){gx=0;gy=0;gw=1;gh=1}
-  var d;
+  return [gx,gy,gw,gh];
+}
+function sampleMotion(){
+  if(!video.videoWidth||!mCx)return -1;
+  var q=regionRect(),d;
+  var sig=q.map(function(v){return v.toFixed(2)}).join(',');
+  if(sig!==refSig){emptyRef=null;refSig=sig}   /* guide moved: reference is stale */
   try{
-    mCx.drawImage(video,gx*video.videoWidth,gy*video.videoHeight,
-      gw*video.videoWidth,gh*video.videoHeight,0,0,mCv.width,mCv.height);
+    mCx.drawImage(video,q[0]*video.videoWidth,q[1]*video.videoHeight,
+      q[2]*video.videoWidth,q[3]*video.videoHeight,0,0,mCv.width,mCv.height);
     d=mCx.getImageData(0,0,mCv.width,mCv.height).data;
   }catch(e){return -1}
   var n=mCv.width*mCv.height,cur=new Uint8Array(n),i,j;
   for(i=0,j=0;j<n;i+=4,j++)cur[j]=(d[i]*77+d[i+1]*151+d[i+2]*28)>>8;
+  /* how much of the guide box differs from the empty scene = someone is there */
+  if(emptyRef&&emptyRef.length===n){
+    var hit=0,e;
+    for(j=0;j<n;j++){e=cur[j]-emptyRef[j];if(e<0)e=-e;if(e>18)hit++}
+    occ=hit/n;
+  }else occ=-1;
   var out=-1;
   if(prevF){
     var sum=0,v;
@@ -634,6 +698,12 @@ function sampleMotion(){
   }
   prevF=cur;
   return out;
+}
+function captureRef(silent){
+  if(!prevF)return false;
+  emptyRef=prevF.slice(0);
+  if(!silent)toast('無人の背景を記録しました');
+  return true;
 }
 function autoTick(){
   if(S.auto==='off'||!stream||cdTimer){prevF=null;return}
@@ -644,14 +714,48 @@ function autoTick(){
   if(recording){onSwingSample(m);return}
   onSetupSample(m);
 }
-/* before recording: wait for the golfer to arrive, then settle into address */
+/* before recording: somebody has to actually be standing in the guide box,
+   and they have to arrive and then settle. Motion alone is not enough —
+   a shadow or an exposure shift moves pixels too. */
 function onSetupSample(m){
   var moveTh=14-(S.sens||5),stillTh=moveTh*0.4;
+  if(m<stillTh)quietMs+=100; else quietMs=0;
+  if(!emptyRef){
+    autoBadge('背景を記録中 '+Math.min(15,Math.round(quietMs/100))+'/15');
+    if(quietMs>=1500)captureRef(true);
+    return;
+  }
+  if(occ>=0&&occ<0.03&&quietMs>=6000){captureRef(true);quietMs=0}
+  var pct=occ<0?'--':Math.round(occ*100)+'%';
+  /* a person fills part of the box; a lighting change shifts all of it, so
+     treat a near-total difference as the scene itself having changed */
+  if(occ>0.75){
+    autoState='idle';moveN=0;stillN=0;
+    emptyRef=null;quietMs=0;
+    autoBadge('明るさ変化 背景再取得');
+    return;
+  }
+  if(occ>=0&&occ<0.06){          /* nobody in frame: never arm */
+    autoState='idle';moveN=0;stillN=0;
+    autoBadge('待機中 人'+pct);
+    return;
+  }
+  /* sound mode: the impact decides when to stop, so there is nothing to wait
+     for at the front — start rolling as soon as somebody is standing there */
+  if(soundOnly()){
+    presN++;
+    autoBadge('人あり '+pct+' '+Math.min(5,presN)+'/5');
+    if(presN>=5){
+      presN=0;
+      if($('#rec').disabled){autoBadge('傾き待ち');return}
+      autoRec=true;discard=false;
+      beginRec();
+    }
+    return;
+  }
   if(autoState==='idle'){
-    /* two consecutive frames of real movement, so a single noisy frame at
-       launch or an exposure shift cannot arm the trigger */
-    if(m>moveTh){moveN++;if(moveN>=2){autoState='armed';stillN=0;autoBadge('構え待ち')}}
-    else{moveN=0;autoBadge('待機中')}
+    if(m>moveTh){moveN++;if(moveN>=2){autoState='armed';stillN=0;autoBadge('構え待ち 人'+pct)}}
+    else{moveN=0;autoBadge('人あり '+pct)}
     return;
   }
   if(m<stillTh){
@@ -664,40 +768,59 @@ function onSetupSample(m){
       beginRec();
     }
   }else{
-    stillN=0;autoBadge('構え待ち');
+    stillN=0;autoBadge('構え待ち 人'+pct);
   }
 }
 function swingTh(){
   return Math.max(7,baseM*2+(11-(S.sens||5))*1.8);
 }
-/* during recording: the swing is a short burst far above the address baseline */
+/* during recording: a swing is a SHORT burst. We only commit once the burst
+   has ended, which is what separates a swing from someone walking about. */
 function onSwingSample(m){
   if(!autoRec)return;
-  if(swingT>0){                      /* already firing: just show the tail */
+  if(swingT>0){
     autoBadge('スイング検知 +'+((Date.now()-recT0)/1000-swingT).toFixed(1)+'s');
     return;
   }
-  if(baseN<10){                      /* learn the address noise floor */
+  if(soundOnly()){
+    var sth=Math.round(Math.max(soundTh(),aFloor*3.5)*100);
+    autoBadge('録画中 音'+Math.round(aRecent*100)+'/'+sth);
+    if(lastImpact>recT0+400){         /* struck since this take began */
+      swingT=Math.max(0,(lastImpact-recT0)/1000-0.1);
+      var left=Math.max(0.4,(S.post||2.5)-(Date.now()-lastImpact)/1000);
+      clearTimeout(recTimer);
+      recTimer=setTimeout(stopRec,left*1000);
+      autoBadge('打球音を検知');
+    }
+    return;
+  }
+  if(baseN<10){
     baseM=(baseM*baseN+m)/(baseN+1);baseN++;
     autoBadge('基準取得 '+baseN+'/10');
     return;
   }
-  var th=swingTh();
-  /* show the live number against the threshold so the sensitivity can be
-     calibrated from one real swing instead of guessed */
-  autoBadge('スイング待ち '+m.toFixed(0)+'/'+th.toFixed(0));
+  var th=swingTh(),useSnd=(S.trig==='both'&&!!anal);
+  autoBadge('待ち 動'+m.toFixed(0)+'/'+th.toFixed(0)+
+    (useSnd?' 音'+Math.round(aRecent*100)+'/'+Math.round(Math.max(soundTh(),aFloor*3.5)*100)+((Date.now()-lastImpact<1500)?' ♪':''):''));
   if(m>th){
+    if(!hotN)hotStart=Date.now();
     hotN++;
-    if(m>peakM)peakM=m;
-    if(hotN>=2){
-      swingT=Math.max(0,(Date.now()-recT0)/1000-0.25);
-      autoBadge('スイング検知');
-      clearTimeout(recTimer);
-      recTimer=setTimeout(stopRec,(S.post||2.5)*1000);
-    }
-  }else{
-    hotN=0;
+    if(hotN>12){hotN=0}          /* 1.2s of sustained motion is not a swing */
+    return;
   }
+  if(hotN>=2){                   /* burst rose and fell: that is a swing */
+    if(useSnd&&(Date.now()-lastImpact)>900){
+      hotN=0;                    /* moved like a swing but nothing was struck */
+      autoBadge('素振り判定');
+      return;
+    }
+    swingT=Math.max(0,(hotStart-recT0)/1000-0.15);
+    var rest=Math.max(0.4,(S.post||2.5)-(Date.now()-hotStart)/1000);
+    clearTimeout(recTimer);
+    recTimer=setTimeout(stopRec,rest*1000);
+    autoBadge('スイング検知');
+  }
+  hotN=0;
 }
 /* ============ storage (IndexedDB + fallback) ============ */
 var db=null,mem=[],useMem=false;
@@ -769,6 +892,7 @@ var sgDur=seg('#segDur',function(){return S.dur},function(v){S.dur=+v});
 var sgCd=seg('#segCd',function(){return S.cd},function(v){S.cd=+v});
 var sgAuto=seg('#segAuto',function(){return S.auto},function(v){S.auto=v;autoReset(false)});
 var sgPost=seg('#segPost',function(){return S.post},function(v){S.post=+v});
+var sgTrig=seg('#segTrig',function(){return S.trig},function(v){S.trig=v});
 var sgCut=seg('#segCut',function(){return S.cut?1:0},function(v){S.cut=v==='1';reCut()});
 
 function rng(sel,vsel,get,set,fmt){
@@ -783,6 +907,7 @@ var rOp=rng('#rOp','#vOp',function(){return Math.round(S.op*100)},function(v){S.
 var rGop=rng('#rGop','#vGop',function(){return Math.round(S.gop*100)},function(v){S.gop=v/100},function(v){return v+'%'});
 var rTol=rng('#rTol','#vTol',function(){return S.tol},function(v){S.tol=v},function(v){return '±'+(v/10).toFixed(1)+'°'});
 var rSens=rng('#rSens','#vSens',function(){return S.sens},function(v){S.sens=v},function(v){return v+''});
+var rAsens=rng('#rAsens','#vAsens',function(){return S.asens},function(v){S.asens=v},function(v){return v+''});
 $('#rZoom').addEventListener('input',function(){
   S.zoom=+this.value;$('#vZoom').textContent='×'+S.zoom.toFixed(1);applyZoom(S.zoom);
 });
@@ -790,7 +915,7 @@ $('#rZoom').addEventListener('change',save);
 
 function syncSheet(){
   sgSlot.sync();sgGuide.sync();sgFace.sync();sgLock.sync();sgDur.sync();sgCd.sync();sgCut.sync();
-  rScale.sync();rOp.sync();rGop.sync();rTol.sync();rSens.sync();sgAuto.sync();sgPost.sync();autoBadge(autoState==='armed'?'構え待ち':'待機中');
+  rScale.sync();rOp.sync();rGop.sync();rTol.sync();rSens.sync();rAsens.sync();sgAuto.sync();sgPost.sync();sgTrig.sync();autoBadge(autoState==='armed'?'構え待ち':'待機中');
 }
 function applyAll(){
   if(S.guide!=='front'&&S.guide!=='dtl'&&S.guide!=='img')S.guide='dtl';
@@ -994,6 +1119,7 @@ $('#bRef').onclick=function(){
   if(!haveTilt){toast('傾きセンサーが使えません');return}
   S.refB=curB;S.refG=curG;save();toast('現在の傾きを基準に設定しました');
 };
+$('#bRef2').onclick=function(){if(!captureRef())toast('カメラ映像がありません')};
 $('#bGrab').onclick=function(){var g=grab();if(g){setGhost(g);S.showGhost=true;save();applyAll();toast('ゴーストを設定しました')}};
 $('#bGclr').onclick=function(){S.showGhost=false;setGhost(null);applyAll();toast('ゴーストを消去しました')};
 $('#rec').onclick=tapRec;
@@ -1137,7 +1263,7 @@ function pick(c){
   if(c.swing){
     var seek=function(){
       rv.removeEventListener('loadeddata',seek);
-      try{rv.currentTime=Math.max(0,c.swing-0.8)}catch(e){}
+      try{rv.currentTime=Math.max(0,c.swing-PRE)}catch(e){}
     };
     rv.addEventListener('loadeddata',seek);
   }
@@ -1240,11 +1366,41 @@ $('#rImg').onclick=function(){
 };
 /* clip export: re-encode with the overlay only when there is something to burn */
 var burning=false;
+/* review-side audio: routed once, kept connected so normal playback still
+   has sound, and tapped for the export stream */
+var revSrc=null,revDest=null;
+function reviewAudio(){
+  try{
+    var AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC)return null;
+    if(!actx)actx=new AC();
+    if(actx.state==='suspended')actx.resume();
+    if(!revSrc){
+      revSrc=actx.createMediaElementSource(rv);
+      revSrc.connect(actx.destination);
+      revDest=actx.createMediaStreamDestination();
+      revSrc.connect(revDest);
+    }
+    return revDest;
+  }catch(e){return null}
+}
+/* export the window the golfer actually cares about: PRE seconds before the
+   impact to POST after it, with any drawn lines burned in */
+var PRE=10;
 $('#rSave').onclick=function(){
   if(!cur)return;
   if(burning){toast('書き出し中です');return}
   var ext=(cur.type||'').indexOf('mp4')>=0?'mp4':'webm';
-  if(!lines.length){dl(cur.blob,'swing_'+cur.id+'.'+ext);toast('動画を保存しました');return}
+  var dur=isFinite(rv.duration)?rv.duration:0;
+  var sw=cur.swing||0;
+  var t0=sw?Math.max(0,sw-PRE):0;
+  var t1=sw?Math.min(dur||1e9,sw+(S.post||5)):(dur||0);
+  var needTrim=sw&&(t0>0.3||(dur&&t1<dur-0.3));
+  if(!lines.length&&!needTrim){
+    dl(cur.blob,'swing_'+cur.id+'.'+ext);
+    toast('動画を保存しました');
+    return;
+  }
   if(!rv.videoWidth){toast('映像がありません');return}
   var W=rv.videoWidth,H=rv.videoHeight;
   var c=document.createElement('canvas');c.width=W;c.height=H;
@@ -1253,38 +1409,51 @@ $('#rSave').onclick=function(){
   var m=mime();
   if(!st||m===null){
     dl(cur.blob,'swing_'+cur.id+'.'+ext);
-    toast('線の焼き込みに未対応のため、元の動画を保存しました');
+    toast('切り出しに未対応のため、元の動画を保存しました');
     return;
   }
+  var ad=reviewAudio();
+  var tracks=st.getVideoTracks();
+  if(ad&&ad.stream.getAudioTracks().length)tracks=tracks.concat(ad.stream.getAudioTracks());
+  var outStream=new MediaStream(tracks);
   var rec;
-  try{rec=new MediaRecorder(st,m?{mimeType:m,videoBitsPerSecond:8000000}:{})}
+  try{rec=new MediaRecorder(outStream,m?{mimeType:m,videoBitsPerSecond:8000000}:{})}
   catch(e){dl(cur.blob,'swing_'+cur.id+'.'+ext);toast('元の動画を保存しました');return}
-  var parts=[],raf=0,k=W/(rc.width/(window.devicePixelRatio||1));
+  var parts=[],raf=0,k=W/(rc.width/(window.devicePixelRatio||1)),stopped=false;
   rec.ondataavailable=function(e){if(e.data&&e.data.size)parts.push(e.data)};
   rec.onstop=function(){
     burning=false;
-    $('#rSave').textContent='動画';
+    $('#rSave').textContent='動画で保存';
     cancelAnimationFrame(raf);
+    rv.pause();
     var t=rec.mimeType||'video/webm';
     var b=new Blob(parts,{type:t});
-    dl(b,'swing_'+cur.id+'_lines.'+(t.indexOf('mp4')>=0?'mp4':'webm'));
-    toast('線入りの動画を保存しました');
+    dl(b,'swing_'+cur.id+'_cut.'+(t.indexOf('mp4')>=0?'mp4':'webm'));
+    toast('打球音の'+PRE+'秒前〜'+(S.post||5)+'秒後を保存しました');
   };
   function frame(){
     try{x.drawImage(rv,0,0,W,H);paintShapes(x,W,H,k)}catch(e){}
+    if(!stopped&&rv.currentTime>=t1-0.02)return finish();
     raf=requestAnimationFrame(frame);
   }
   function finish(){
+    if(stopped)return;
+    stopped=true;
     rv.removeEventListener('ended',finish);
     setTimeout(function(){try{rec.stop()}catch(e){}},250);
   }
   burning=true;
   $('#rSave').textContent='書出中';
-  rv.pause();rv.currentTime=0;rv.playbackRate=1;
-  rv.addEventListener('ended',finish);
-  rec.start();
-  frame();
-  rv.play().catch(function(){finish()});
+  rv.pause();rv.playbackRate=1;
+  var go=function(){
+    rv.removeEventListener('seeked',go);
+    rv.addEventListener('ended',finish);
+    rec.start();
+    frame();
+    rv.play().catch(function(){finish()});
+  };
+  rv.addEventListener('seeked',go);
+  rv.currentTime=t0;
 };
 /* side-by-side vs overlay comparison */
 var split=false;
