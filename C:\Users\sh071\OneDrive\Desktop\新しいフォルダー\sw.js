@@ -1,7 +1,7 @@
 /* SwingFrame service worker.
    Navigations are always fetched fresh so a re-uploaded index.html shows up
    immediately; the cache only stands in when the network fails. */
-var CACHE = 'swingframe-v21';
+var CACHE = 'swingframe-v22';
 var CORE = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', function (e) {
