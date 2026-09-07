@@ -81,10 +81,6 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   display:none;align-items:center;gap:14px;white-space:nowrap;max-width:92vw}
 #toast.on{display:flex}
 #toast button{color:var(--accent);font-weight:600;font-size:14.9px}
-#warn{position:absolute;left:50%;top:calc(env(safe-area-inset-top) + 76px);transform:translateX(-50%);
-  background:rgba(255,91,91,.18);border:1px solid rgba(255,91,91,.5);color:#ffd9d9;
-  border-radius:10px;padding:7px 13px;font-size:13.8px;display:none;white-space:nowrap}
-#warn.on{display:block}
 #adjHint{position:absolute;left:50%;top:22%;transform:translateX(-50%);
   border:1px dashed var(--accent);border-radius:12px;padding:8px 14px;font-size:13.8px;color:var(--accent);
   background:rgba(0,0,0,.55);display:none;pointer-events:none;white-space:nowrap}
@@ -277,6 +273,23 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 #dests button{flex:1;padding:9px 4px;border-radius:9px;background:var(--chip);font-size:13.2px;color:var(--dim)}
 #dests button.on{background:rgba(61,220,132,.2);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(61,220,132,.5)}
 #rSavePop{width:190px}
+
+/* ---------- horizon level (iPhone-camera style) ---------- */
+#level{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:200px;height:60px;pointer-events:none;z-index:3;
+  opacity:0;transition:opacity .45s}
+#level.show{opacity:1}
+#level.ok .lvl-fix,#level.ok .lvl-mov{background:var(--accent);
+  box-shadow:0 0 8px rgba(61,220,132,.7)}
+#level.ok .lvl-num{color:var(--accent)}
+.lvl-fix,.lvl-mov{position:absolute;left:50%;top:50%;width:132px;height:2px;
+  margin:-1px 0 0 -66px;border-radius:2px;background:rgba(255,255,255,.55);
+  box-shadow:0 0 3px rgba(0,0,0,.9)}
+.lvl-fix{width:150px;margin-left:-75px;background:rgba(255,255,255,.3)}
+.lvl-mov{transition:transform .06s linear}
+.lvl-num{position:absolute;left:0;right:0;top:34px;text-align:center;
+  font-size:12px;color:rgba(255,255,255,.75);font-variant-numeric:tabular-nums;
+  text-shadow:0 1px 3px rgba(0,0,0,.9)}
 </style>
 </head>
 <body>
@@ -301,10 +314,6 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
   </div>
 
   <div id="hud">
-    <div id="lvl">
-      <div id="lvlBox"><div id="lvlRing"></div><div id="lvlDot"></div></div>
-      <div id="lvlTxt"><b id="lvlMain">傾き —</b><span id="lvlSub">センサー待機</span></div>
-    </div>
     <div style="flex:1"></div>
     <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
       <div class="badge" id="bInfo">—</div>
@@ -334,8 +343,8 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
     <button class="fbtn" id="bSet"><i>⚙</i>設定</button>
   </div>
 
+  <div id="level"><div class="lvl-fix"></div><div class="lvl-mov"></div><div class="lvl-num"></div></div>
   <div id="count"></div>
-  <div id="warn"></div>
   <div id="adjHint">ドラッグで移動 ／ 2本指で拡大縮小</div>
   <div id="toast"><span id="toastT"></span><button id="toastB">確認</button></div>
 
@@ -370,11 +379,6 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <button data-v="environment">背面</button><button data-v="user">前面</button>
     </div></div>
 
-    <div class="hd">水平・傾き</div>
-    <button class="act-btn pri" id="bRef">今の傾きを基準にする</button>
-    <div class="row"><div class="lb">許容範囲</div><input type="range" id="rTol" min="5" max="60" step="1"><div class="val" id="vTol"></div></div>
-    <div class="row"><div class="lb">ロック</div><div class="seg" id="segLock">
-      <button data-v="1">合うまで録画不可</button><button data-v="0">警告のみ</button>
     </div></div>
 
 
@@ -520,7 +524,7 @@ var $=function(s){return document.querySelector(s)};
 
 /* ============ state ============ */
 var DEF={guide:'dtl',mirror:false,scale:.5,cx:.5,cy:.62,op:.6,zoom:null,face:'environment',
-         refB:90,refG:0,tol:20,dur:8,cd:3,lock:true,
+         dur:8,cd:3,
          img:null,cut:true,auto:'off',sens:5,post:5,trig:'sound',asens:5};
 var gAR=0.5,gAX=0.5;
 /* where the body sits inside each guide image, as a fraction of its width.
@@ -614,40 +618,39 @@ function applyZoom(v){
 }
 
 /* ============ level ============ */
-var haveTilt=false,curB=null,curG=null,levelOK=true;
+/* horizon level: a reference only — it never blocks recording.
+   The moving line follows the device roll; once it lines up with the fixed
+   line both turn green and the whole thing fades away, like the iPhone camera. */
+var haveTilt=false,levelOn=false,levelHide=null;
+function norm(d){while(d>180)d-=360;while(d<-180)d+=360;return d}
 function onTilt(e){
   if(e.beta==null&&e.gamma==null)return;
-  haveTilt=true;curB=e.beta;curG=e.gamma;
-  var db=norm(curB-S.refB),dg=norm(curG-S.refG);
-  var tol=S.tol/10;
-  levelOK=Math.abs(db)<=tol&&Math.abs(dg)<=tol;
-  var R=17;
-  var x=Math.max(-1,Math.min(1,dg/8))*R,y=Math.max(-1,Math.min(1,db/8))*R;
-  var d=$('#lvlDot');
-  d.style.transform='translate('+x.toFixed(1)+'px,'+y.toFixed(1)+'px)';
-  d.classList.toggle('ok',levelOK);
-  $('#lvlMain').textContent='前後 '+sign(db)+'° / 左右 '+sign(dg)+'°';
-  $('#lvlSub').textContent=levelOK?'画角OK':'基準からズレています';
-  updateWarn();
-}
-function norm(d){while(d>180)d-=360;while(d<-180)d+=360;return d}
-function sign(v){return (v>=0?'+':'')+v.toFixed(1)}
-function updateWarn(){
-  var w=$('#warn'),bad=haveTilt&&!levelOK;
-  w.classList.toggle('on',bad&&!recording);
-  if(bad)w.textContent=S.lock?'傾きが基準とズレています（録画不可）':'傾きが基準とズレています';
-  $('#rec').disabled=!!(bad&&S.lock&&!recording);
+  haveTilt=true;
+  var roll=norm(e.gamma||0);
+  if(Math.abs(norm(e.beta||0))>140)roll=-roll;      /* upside down */
+  var el=$('#level');
+  el.querySelector('.lvl-mov').style.transform='rotate('+(-roll).toFixed(2)+'deg)';
+  el.querySelector('.lvl-num').textContent=(roll>=0?'+':'')+roll.toFixed(1)+'°';
+  var ok=Math.abs(roll)<=1;
+  el.classList.toggle('ok',ok);
+  if(ok){
+    if(!levelHide)levelHide=setTimeout(function(){
+      el.classList.remove('show');levelOn=false;levelHide=null;
+    },900);
+  }else{
+    if(levelHide){clearTimeout(levelHide);levelHide=null}
+    if(Math.abs(roll)>1.6||levelOn){el.classList.add('show');levelOn=true}
+  }
 }
 async function askTilt(){
   try{
     var D=window.DeviceOrientationEvent;
     if(D&&typeof D.requestPermission==='function'){
       var p=await D.requestPermission();
-      if(p!=='granted'){$('#lvlSub').textContent='傾きセンサー未許可';return}
+      if(p!=='granted')return;
     }
     window.addEventListener('deviceorientation',onTilt);
-    setTimeout(function(){if(!haveTilt){$('#lvlSub').textContent='傾きセンサーなし';$('#rec').disabled=false}},1500);
-  }catch(e){$('#lvlSub').textContent='傾きセンサーなし'}
+  }catch(e){}
 }
 
 /* ============ adjust (drag / pinch) ============ */
@@ -713,7 +716,6 @@ function beginRec(){
   mr.start();
   recording=true;recT0=Date.now();
   $('#rec').classList.add('recording');
-  $('#warn').classList.remove('on');
   if(autoRec){
     /* auto mode runs open-ended: the swing decides when to stop */
     swingT=-1;baseM=0;baseN=0;hotN=0;
@@ -736,7 +738,7 @@ function stopRec(){
   $('#rec').classList.remove('recording');
   $('#recArc').setAttribute('stroke-dashoffset','295.31');
   try{mr.stop()}catch(e){}
-  updateWarn();
+
 }
 function onStop(){
   var wasAuto=autoRec,drop=discard;
@@ -905,7 +907,7 @@ function onSetupSample(m){
     autoBadge('人あり '+pct+' '+Math.min(5,presN)+'/5');
     if(presN>=5){
       presN=0;
-      if($('#rec').disabled){autoBadge('傾き待ち');return}
+
       autoRec=true;discard=false;
       beginRec();
     }
@@ -921,7 +923,7 @@ function onSetupSample(m){
     autoBadge('静止 '+Math.min(6,stillN)+'/6');
     if(stillN>=6){
       autoState='idle';stillN=0;moveN=0;
-      if($('#rec').disabled){autoBadge('傾き待ち');return}
+
       autoRec=true;discard=false;
       beginRec();
     }
@@ -1071,7 +1073,6 @@ function seg(sel,get,set){
 var sgSlot=seg('#segSlot',function(){return slot},function(v){useSlot(+v)});
 var sgGuide=seg('#segGuide',function(){return S.guide},function(v){S.guide=v});
 var sgFace=seg('#segFace',function(){return S.face},function(v){if(S.face!==v){S.face=v;startCam().catch(function(e){toast(e.message||'カメラ切替に失敗')})}});
-var sgLock=seg('#segLock',function(){return S.lock?1:0},function(v){S.lock=v==='1'});
 var sgDur=seg('#segDur',function(){return S.dur},function(v){S.dur=+v});
 var sgCd=seg('#segCd',function(){return S.cd},function(v){S.cd=+v});
 var sgAuto=seg('#segAuto',function(){return S.auto},function(v){S.auto=v;autoReset(false)});
@@ -1088,7 +1089,6 @@ function rng(sel,vsel,get,set,fmt){
 }
 var rScale=rng('#rScale','#vScale',function(){return Math.round(S.scale*100)},function(v){S.scale=v/100},function(v){return v+'%'});
 var rOp=rng('#rOp','#vOp',function(){return Math.round(S.op*100)},function(v){S.op=v/100},function(v){return v+'%'});
-var rTol=rng('#rTol','#vTol',function(){return S.tol},function(v){S.tol=v},function(v){return '±'+(v/10).toFixed(1)+'°'});
 var rSens=rng('#rSens','#vSens',function(){return S.sens},function(v){S.sens=v},function(v){return v+''});
 var rAsens=rng('#rAsens','#vAsens',function(){return S.asens},function(v){S.asens=v},function(v){return v+''});
 $('#rZoom').addEventListener('input',function(){
@@ -1097,8 +1097,8 @@ $('#rZoom').addEventListener('input',function(){
 $('#rZoom').addEventListener('change',save);
 
 function syncSheet(){
-  sgSlot.sync();sgGuide.sync();sgFace.sync();sgLock.sync();sgDur.sync();sgCd.sync();sgCut.sync();
-  rScale.sync();rOp.sync();rTol.sync();rSens.sync();rAsens.sync();sgAuto.sync();sgPost.sync();sgTrig.sync();autoBadge(autoState==='armed'?'構え待ち':'待機中');
+  sgSlot.sync();sgGuide.sync();sgFace.sync();sgDur.sync();sgCd.sync();sgCut.sync();
+  rScale.sync();rOp.sync();rSens.sync();rAsens.sync();sgAuto.sync();sgPost.sync();sgTrig.sync();autoBadge(autoState==='armed'?'構え待ち':'待機中');
 }
 function applyAll(){
   if(S.guide!=='front'&&S.guide!=='dtl'&&S.guide!=='img')S.guide='dtl';
@@ -1124,7 +1124,7 @@ function applyAll(){
   $('#bGuideT').textContent=kind==='front'?'正面':(kind==='dtl'?'後方':'画像');
   $('#bMirror').classList.toggle('act',S.mirror);
   $('#bAdj').classList.toggle('act',adj);
-  syncSheet();layout();updateWarn();
+  syncSheet();layout();
   if(zcap&&S.zoom!=null)applyZoom(S.zoom);
 }
 
@@ -1320,10 +1320,6 @@ $('#sheetBack').onclick=function(){openSheet(false)};
   sh.addEventListener('pointercancel',end);
 })();
 $('#bReset').onclick=function(){S.cx=.5;S.cy=.5;S.scale=.82;save();applyAll()};
-$('#bRef').onclick=function(){
-  if(!haveTilt){toast('傾きセンサーが使えません');return}
-  S.refB=curB;S.refG=curG;save();toast('現在の傾きを基準に設定しました');
-};
 $('#bRef2').onclick=function(){if(!captureRef())toast('カメラ映像がありません')};
 $('#rec').onclick=tapRec;
 $('#bReview').onclick=function(){openReview(null,'cam')};
