@@ -1,7 +1,7 @@
-/* SwingFrame service worker — network first, cache as fallback.
-   Network first keeps a re-uploaded index.html from being masked by a stale
-   cache; the cache is only consulted when the network fails. */
-var CACHE = 'swingframe-v1';
+/* SwingFrame service worker.
+   Navigations are always fetched fresh so a re-uploaded index.html shows up
+   immediately; the cache only stands in when the network fails. */
+var CACHE = 'swingframe-v21';
 var CORE = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', function (e) {
@@ -25,19 +25,29 @@ self.addEventListener('activate', function (e) {
   );
 });
 
+self.addEventListener('message', function (e) {
+  if (e.data === 'skipWaiting') self.skipWaiting();
+});
+
 self.addEventListener('fetch', function (e) {
   var req = e.request;
   if (req.method !== 'GET') return;
   if (new URL(req.url).origin !== self.location.origin) return;
+
+  var isPage = req.mode === 'navigate' ||
+    (req.headers.get('accept') || '').indexOf('text/html') >= 0;
+
   e.respondWith(
-    fetch(req).then(function (res) {
-      var copy = res.clone();
-      caches.open(CACHE).then(function (c) { c.put(req, copy); }).catch(function () {});
-      return res;
-    }).catch(function () {
-      return caches.match(req).then(function (hit) {
-        return hit || caches.match('./index.html');
-      });
-    })
+    fetch(isPage ? new Request(req.url, { cache: 'reload' }) : req)
+      .then(function (res) {
+        var copy = res.clone();
+        caches.open(CACHE).then(function (c) { c.put(req, copy); }).catch(function () {});
+        return res;
+      })
+      .catch(function () {
+        return caches.match(req).then(function (hit) {
+          return hit || caches.match('./index.html');
+        });
+      })
   );
 });
