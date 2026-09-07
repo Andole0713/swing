@@ -1097,7 +1097,7 @@ $('#rZoom').addEventListener('change',save);
 
 function syncSheet(){
   sgSlot.sync();sgGuide.sync();sgFace.sync();sgLock.sync();sgDur.sync();sgCd.sync();sgCut.sync();
-  rScale.sync();rOp.sync();rGop.sync();rTol.sync();rSens.sync();rAsens.sync();sgAuto.sync();sgPost.sync();sgTrig.sync();autoBadge(autoState==='armed'?'構え待ち':'待機中');
+  rScale.sync();rOp.sync();rTol.sync();rSens.sync();rAsens.sync();sgAuto.sync();sgPost.sync();sgTrig.sync();autoBadge(autoState==='armed'?'構え待ち':'待機中');
 }
 function applyAll(){
   if(S.guide!=='front'&&S.guide!=='dtl'&&S.guide!=='img')S.guide='dtl';
