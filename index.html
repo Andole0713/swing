@@ -229,12 +229,13 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 #rTrans{position:absolute;left:50%;transform:translateX(-50%);z-index:6;
   bottom:calc(env(safe-area-inset-bottom) + 52px);
   display:flex;align-items:center;gap:12px}
-#rTrans button{width:60px;height:54px;border-radius:14px;
+#rTrans button{width:60px;height:54px;border-radius:14px;transition:background .12s;
   background:rgba(14,17,21,.5);border:1px solid rgba(255,255,255,.14);
   -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
   font-size:11px;color:var(--dim);padding:0}
 #rTrans button i{font-style:normal;font-size:17.2px;line-height:1;color:#fff}
+#rTrans button.on{background:rgba(61,220,132,.28);border-color:rgba(61,220,132,.55)}
 #rTrans button.big{width:72px;height:64px;border-radius:18px;background:rgba(61,220,132,.2);
   border-color:rgba(61,220,132,.5)}
 #rTrans button.big i{font-size:25.3px;color:var(--accent)}
@@ -1576,8 +1577,35 @@ function updTime(){
   $('#rTime').textContent=rv.currentTime.toFixed(2)+' / '+d.toFixed(2);
 }
 $('#rPlay').onclick=function(){if(rv.paused)rv.play().catch(function(){});else rv.pause()};
-$('#rPrev').onclick=function(){step(-1)};
-$('#rNext').onclick=function(){step(1)};
+/* tap = one frame, hold = keep stepping until released. The repeat speeds up
+   the longer it is held so a long scrub does not take forever. */
+var holdDir=0,holdTimer=null,holdT0=0;
+function endHold(){holdDir=0;clearTimeout(holdTimer);holdTimer=null}
+function beginHold(dir){
+  endHold();
+  step(dir);
+  holdDir=dir;holdT0=Date.now();
+  holdTimer=setTimeout(function tick(){
+    if(!holdDir)return;
+    step(holdDir);
+    var held=(Date.now()-holdT0)/1000;
+    holdTimer=setTimeout(tick,held>2.5?45:(held>1.2?75:115));
+  },330);
+}
+['#rPrev','#rNext'].forEach(function(id){
+  var b=$(id),dir=(id==='#rPrev')?-1:1;
+  b.style.touchAction='none';
+  b.addEventListener('pointerdown',function(e){
+    e.preventDefault();
+    try{b.setPointerCapture(e.pointerId)}catch(err){}
+    b.classList.add('on');
+    beginHold(dir);
+  });
+  ['pointerup','pointercancel','pointerleave'].forEach(function(ev){
+    b.addEventListener(ev,function(){b.classList.remove('on');endHold()});
+  });
+  b.addEventListener('contextmenu',function(e){e.preventDefault()});
+});
 function step(dir){
   rv.pause();
   var f=1/((cur&&cur.fps)||30);
