@@ -458,16 +458,18 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
     <button class="rbtn" id="rCmpBtn"><i>⧉</i>比較</button>
     <button class="rbtn" id="rFav"><i id="favIcon">♡</i>お気に入り</button>
     <button class="rbtn" id="rNote"><i>✎</i>コメント</button>
+    <button class="rbtn" id="rLab"><i>📐</i>計測</button>
     <button class="rbtn" id="rSaveBtn"><i>⬇</i>保存</button>
   </div>
 
   <div class="pop right" id="rSavePop">
-    <div class="popttl">保存先（複数選べます）</div>
+    <div class="popttl">保存先</div>
     <div id="dests">
       <button data-d="app" class="on">アプリ</button>
-      <button data-d="dev">端末</button>
-      <button data-d="share">共有</button>
+      <button data-d="roll">カメラロール</button>
+      <button data-d="share">他のアプリ</button>
     </div>
+    <div class="muted" id="destHint" style="font-size:12px;margin:-4px 0 8px;line-height:1.5"></div>
     <button id="rImg">画像で保存</button>
     <button id="rSave">動画を保存</button>
   </div>
@@ -516,13 +518,15 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 var $=function(s){return document.querySelector(s)};
 
 /* ============ state ============ */
-var DEF={guide:'dtl',mirror:false,scale:.5,cx:.5,cy:.62,op:.6,zoom:1,face:'environment',
+var DEF={guide:'dtl',mirror:false,scale:.44,cx:.5,cy:.62,op:.6,zoom:1,face:'environment',
          dur:8,cd:0,
          img:null,cut:true,auto:'off',sens:5,post:5,trig:'sound',asens:5};
 var gAR=0.5,gAX=0.5;
 /* where the body sits inside each guide image, as a fraction of its width.
    the DTL art reserves its right half for the club, so its body is left of centre */
-var ANCHORX={dtl:0.38,front:0.5,img:0.5};
+/* anchor inside the artwork that sits on cx. Raising it slides the guide left,
+   and the mirror subtracts it from 1, so the left-handed guide slides right. */
+var ANCHORX={dtl:0.43,front:0.5,img:0.5};
 var S=Object.assign({},DEF), slot=1, KEY='swingframe.v1';
 
 function all(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
@@ -1643,44 +1647,46 @@ function dl(blob,name){
   document.body.appendChild(a);a.click();
   setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},5000);
 }
-/* destinations: app library / device download / OS share sheet.
-   Any combination can be selected; each is attempted independently. */
-var dests={app:true,dev:false,share:false};
+/* One destination at a time: the app's own library, the camera roll, or
+   handing the file to another app. */
+var dest='app';
 $('#dests').addEventListener('click',function(e){
   var b=e.target.closest('button');if(!b)return;
-  var d=b.dataset.d;
-  dests[d]=!dests[d];
-  if(!dests.app&&!dests.dev&&!dests.share){dests[d]=true;return}
-  b.classList.toggle('on',dests[d]);
+  dest=b.dataset.d;
+  Array.prototype.forEach.call($('#dests').children,function(x){
+    x.classList.toggle('on',x.dataset.d===dest);
+  });
+  $('#destHint').textContent = dest==='roll'
+    ? '共有メニューが開きます。「ビデオを保存」を選ぶとカメラロールに入ります。' : '';
 });
 function canShare(file){
   try{return !!(navigator.canShare&&navigator.share&&navigator.canShare({files:[file]}))}
   catch(e){return false}
 }
 function saveTo(blob,name,kind,meta){
-  var done=[],pend=[];
-  if(dests.app){
-    if(kind==='image'){
-      pend.push(addShot({id:Date.now(),ts:new Date().toISOString(),blob:blob,
-        note:(meta&&meta.note)||'',from:(meta&&meta.from)||null}).then(function(){done.push('アプリ')}));
-    }else{
-      pend.push(addClip({id:Date.now(),ts:new Date().toISOString(),blob:blob,
-        guide:(meta&&meta.guide)||S.guide,fps:fps,slot:slot,type:blob.type,
-        swing:null,note:(meta&&meta.note)||'',fav:false,cut:true}).then(function(){done.push('アプリ')}));
-    }
+  if(dest==='app'){
+    var p = kind==='image'
+      ? addShot({id:Date.now(),ts:new Date().toISOString(),blob:blob,
+          note:(meta&&meta.note)||'',from:(meta&&meta.from)||null})
+      : addClip({id:Date.now(),ts:new Date().toISOString(),blob:blob,
+          guide:(meta&&meta.guide)||S.guide,fps:fps,slot:slot,type:blob.type,
+          swing:null,note:(meta&&meta.note)||'',fav:false,cut:true});
+    return p.then(function(){ toast('アプリに保存しました'); refreshHome(); })
+            .catch(function(){ toast('保存できませんでした'); });
   }
-  if(dests.dev){try{dl(blob,name);done.push('端末')}catch(e){}}
-  if(dests.share){
-    try{
-      var f=new File([blob],name,{type:blob.type});
-      if(canShare(f))pend.push(navigator.share({files:[f]}).then(function(){done.push('共有')}).catch(function(){}));
-      else{dl(blob,name);done.push('端末（共有は非対応）')}
-    }catch(e){}
+  /* The camera roll is not writable from a web page on iPhone — the share menu
+     is the only way in, and the person taps 「ビデオを保存」 there themselves.
+     Where sharing a file is not supported at all, fall back to a download. */
+  var f=null;
+  try{ f=new File([blob],name,{type:blob.type}); }catch(e){}
+  if(f&&canShare(f)){
+    return navigator.share({files:[f]})
+      .then(function(){ toast('完了しました'); })
+      .catch(function(){});           /* cancelled — say nothing */
   }
-  return Promise.all(pend).then(function(){
-    toast(done.length?(done.join('と')+'に保存しました'):'保存できませんでした');
-    if(dests.app)refreshHome();
-  });
+  try{ dl(blob,name); toast('端末にダウンロードしました'); }
+  catch(e){ toast('保存できませんでした'); }
+  return Promise.resolve();
 }
 /* still frame with the drawings burned in */
 $('#rImg').onclick=function(){
@@ -1865,6 +1871,17 @@ function closePops(except){
 $('#rDrawBtn').onclick=function(){closePops('#rDraw');$('#rDraw').classList.toggle('on')};
 $('#rColBtn').onclick=function(){closePops('#rColors');$('#rColors').classList.toggle('on')};
 $('#rWidth').onclick=function(){closePops('#rWidthPop');$('#rWidthPop').classList.toggle('on')};
+/* Hand this swing to the measuring page. It reads the same browser database,
+   so only the id needs to travel — the video itself stays where it is. */
+$('#rLab').onclick=function(){
+  if(!cur){toast('スイングが選ばれていません');return}
+  closePops();
+  if(location.protocol==='file:'){
+    toast('この機能はネット上に置いたときだけ使えます');
+    return;
+  }
+  location.href='pose-lab.html?clip='+encodeURIComponent(cur.id);
+};
 $('#rSaveBtn').onclick=function(){closePops('#rSavePop');$('#rSavePop').classList.toggle('on')};
 $('#rCmpBtn').onclick=function(){
   closePops();
@@ -1993,9 +2010,21 @@ rc.addEventListener('pointercancel',function(){drawing=null;redraw()});
     });
     put(a);
   }
+  if(a.ver<8){
+    a.ver=8;
+    /* guide a size smaller, and the rear guide sits further left */
+    [`p1`,`p2`,`p3`].forEach(function(k){if(a[k])a[k].scale=DEF.scale});
+    put(a);
+  }
   if(a.ver<7){
     a.ver=7;
     ['p1','p2','p3'].forEach(function(k){if(a[k])a[k].zoom=1});
+    put(a);
+  }
+  if(a.ver<8){
+    a.ver=8;
+    /* guide a size smaller; the rear anchor moved too, but that is a constant */
+    ['p1','p2','p3'].forEach(function(k){if(a[k])a[k].scale=DEF.scale});
     put(a);
   }
   slot=a.slot||1;
