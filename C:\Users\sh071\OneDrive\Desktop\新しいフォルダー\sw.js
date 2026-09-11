@@ -1,6 +1,7 @@
 /* SwingFrame service worker.
    Navigations are always fetched fresh so a re-uploaded index.html shows up
    immediately; the cache only stands in when the network fails. */
+/* index.html の #hVer と必ずそろえること */
 var CACHE = 'swingframe-v26';
 var CORE = ['./', './index.html', './manifest.webmanifest'];
 
