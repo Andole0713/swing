@@ -1,0 +1,1227 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>骨格解析ラボ — SwingFrame</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>
+:root{
+  --fg:#e9edf2; --dim:#93a0b0; --accent:#3ddc84; --bad:#ff5b5b; --warn:#ffb020;
+  --panel:#12161b; --line:rgba(255,255,255,.13); --chip:rgba(255,255,255,.07);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0a0c0f;color:var(--fg);
+  font:400 15px/1.6 -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif}
+h1{font-size:19px;margin:0 0 2px}
+h2{font-size:14px;margin:0 0 10px;color:var(--dim);font-weight:600;letter-spacing:.06em}
+.wrap{max-width:1180px;margin:0 auto;padding:18px 16px 60px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.grid{display:grid;gap:10px}
+.g5{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+label{display:block;font-size:12px;color:var(--dim);margin-bottom:4px}
+input,select{width:100%;padding:9px 10px;border-radius:9px;background:#0b0f13;color:var(--fg);
+  border:1px solid var(--line);font:inherit;font-size:14px}
+button{font:inherit;color:inherit;background:var(--chip);border:1px solid var(--line);
+  border-radius:9px;padding:9px 14px;cursor:pointer}
+button:hover:not(:disabled){border-color:rgba(255,255,255,.3)}
+button:disabled{opacity:.4;cursor:default}
+button.pri{background:rgba(61,220,132,.16);border-color:rgba(61,220,132,.45);color:var(--accent);font-weight:600}
+button.sm{padding:6px 10px;font-size:13px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--dim);font-size:12.5px}
+.stage{position:relative;background:#000;border-radius:12px;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;min-height:220px}
+#cv{max-width:100%;max-height:64vh;display:block}
+#log{white-space:pre-wrap;font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:#9fe6bd;background:#0b0f13;border:1px solid var(--line);border-radius:10px;
+  padding:10px;max-height:190px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--dim);font-weight:600;font-size:11.5px;position:sticky;top:0;background:var(--panel)}
+.tblwrap{overflow:auto;max-height:52vh}
+.pgrid{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+.pcell{background:#0b0f13;border:1px solid var(--line);border-radius:10px;padding:9px 10px}
+.pcell.on{border-color:var(--accent)}
+.pcell .pn{font-size:12px;color:var(--dim)}
+.pcell .pv{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.pcell .row{margin-top:6px;gap:5px}
+.bar{height:6px;border-radius:3px;background:#1b2128;overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--accent);width:0}
+.tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:99px;
+  background:var(--chip);color:var(--dim);margin-left:6px}
+.tag.ok{background:rgba(61,220,132,.16);color:var(--accent)}
+.tag.warn{background:rgba(255,176,32,.16);color:var(--warn)}
+.tag.bad{background:rgba(255,91,91,.16);color:var(--bad)}
+textarea{width:100%;height:210px;background:#0b0f13;color:var(--fg);border:1px solid var(--line);
+  border-radius:10px;padding:10px;font:12px/1.6 ui-monospace,monospace;resize:vertical}
+#graph{display:block;width:100%;height:118px;margin-top:10px;border-radius:10px;
+  background:#0b0f13;border:1px solid var(--line);cursor:crosshair}
+.glegend{margin-top:5px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.glegend b{font-weight:600}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card">
+    <h1>骨格解析ラボ</h1>
+    <div class="muted">録画済みのスイング動画から姿勢を推定し、P点を判定して解析JSONを書き出します。<br>
+      後方（飛球線後方）から撮影した右打ちの動画を想定しています。</div>
+  </div>
+
+  <div class="card">
+    <h2>1. お客様情報</h2>
+    <div class="grid g5">
+      <div><label>お客様名</label><input id="cName" placeholder="山田 太郎"></div>
+      <div><label>身長 (cm)</label><input id="cHeight" type="number" value="170" min="120" max="220"></div>
+      <div><label>撮影日</label><input id="cDate" type="date"></div>
+      <div><label>解析ID</label><input id="cId" placeholder="SW-0000-00"></div>
+      <div><label>担当プロ名</label><input id="cCoach" placeholder="（担当プロ名）"></div>
+    </div>
+  </div>
+
+  <div class="card hide" id="libCard">
+    <h2>2. アプリに保存したスイングから選ぶ</h2>
+    <div class="muted" id="libNote" style="margin-bottom:8px"></div>
+    <div class="row" id="libList"></div>
+  </div>
+
+  <div class="card">
+    <h2>3. 動画と解析</h2>
+    <div class="grid g5">
+      <div><label>動画ファイル</label><input id="file" type="file" accept="video/*"></div>
+      <div><label>モデル</label>
+        <select id="model">
+          <option value="lite">lite（速い・粗い）</option>
+          <option value="full" selected>full（標準）</option>
+          <option value="heavy">heavy（遅い・精密）</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:flex-end"><button id="run" class="pri" disabled>解析を開始</button></div>
+      <div style="display:flex;align-items:flex-end"><button id="stop" disabled>中断</button></div>
+    </div>
+    <div class="bar"><i id="prog"></i></div>
+    <div class="row" style="margin-top:10px">
+      <span class="muted" id="stat">動画を選んでください</span>
+    </div>
+    <div id="swingPick" class="hide" style="margin-top:12px">
+      <div class="muted" id="pickNote" style="margin-bottom:7px"></div>
+      <div class="row" id="swingBtns"></div>
+      <div class="row" style="margin-top:9px">
+        <span class="muted">見つからない球がある場合：</span>
+        <input id="atSec" type="number" step="0.1" min="0" placeholder="秒" style="width:110px">
+        <button class="sm" id="atGo">この秒数を解析</button>
+      </div>
+    </div>
+    <div id="log" style="margin-top:10px">準備中…</div>
+  </div>
+
+  <div class="card hide" id="viewCard">
+    <h2>4. 確認とP点の修正</h2>
+    <div class="stage"><canvas id="cv"></canvas></div>
+    <canvas id="graph"></canvas>
+    <div class="muted glegend">
+      <b style="color:#3ddc84">緑＝手元の高さ</b>
+      <b style="color:#ffd23d">黄＝手元の速さ</b>
+      <b style="color:#7fb0ff">青＝前傾角</b>
+      灰色の帯＝スイングと判定した区間。グラフをクリックするとそのコマへ飛びます。
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="sm" id="f10b">◀◀ 10</button>
+      <button class="sm" id="f1b">◀ 1</button>
+      <span class="muted" id="fpos" style="min-width:150px;text-align:center"></span>
+      <button class="sm" id="f1f">1 ▶</button>
+      <button class="sm" id="f10f">10 ▶▶</button>
+      <input id="scrub" type="range" min="0" max="0" value="0" style="flex:1;min-width:180px">
+    </div>
+    <div class="pgrid" id="pgrid" style="margin-top:12px"></div>
+    <div class="muted" style="margin-top:10px">
+      各P点は自動判定の結果です。コマ送りで確認し、ずれていれば「−1 / +1」か「現在のコマ」で直してください。
+      とくにトップ（P4）は1コマのずれで全数値が変わります。
+    </div>
+  </div>
+
+  <div class="card hide" id="resCard">
+    <h2>5. 計測結果</h2>
+    <div class="tblwrap"><table id="tbl"></table></div>
+  </div>
+
+  <div class="card hide" id="outCard">
+    <h2>6. 書き出し</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button class="pri" id="dl">JSONをダウンロード</button>
+      <button id="copy">クリップボードにコピー</button>
+      <span class="muted" id="copied"></span>
+    </div>
+    <textarea id="json" readonly></textarea>
+  </div>
+
+</div>
+
+<script type="module">
+import {PoseLandmarker, FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+
+const $ = s => document.querySelector(s);
+const log = m => { const l=$('#log'); l.textContent += '\n'+m; l.scrollTop = l.scrollHeight; };
+const setStat = m => $('#stat').textContent = m;
+
+/* ---------- landmark indices ---------- */
+const NOSE=0, LSH=11, RSH=12, LEL=13, REL=14, LWR=15, RWR=16, LIDX=19,
+      LHIP=23, RHIP=24, LKNE=25, RKNE=26, LANK=27, RANK=28;
+
+const P_KEYS = ['P1','P3','P4','P6','P7','P9','P10'];
+const P_LABEL = {
+  P1:'P1 アドレス', P3:'P3 左腕水平（バック）', P4:'P4 トップ', P6:'P6 左腕水平（ダウン）',
+  P7:'P7 インパクト', P9:'P9 右腕水平（フォロー）', P10:'P10 フィニッシュ'
+};
+
+/* ---------- vector helpers (world landmarks are metres, y is down) ---------- */
+const v = (a)=>({x:a.x,y:a.y,z:a.z});
+const sub=(a,b)=>({x:a.x-b.x,y:a.y-b.y,z:a.z-b.z});
+const add=(a,b)=>({x:a.x+b.x,y:a.y+b.y,z:a.z+b.z});
+const mul=(a,k)=>({x:a.x*k,y:a.y*k,z:a.z*k});
+const mid=(a,b)=>mul(add(a,b),0.5);
+const dot=(a,b)=>a.x*b.x+a.y*b.y+a.z*b.z;
+const cross=(a,b)=>({x:a.y*b.z-a.z*b.y, y:a.z*b.x-a.x*b.z, z:a.x*b.y-a.y*b.x});
+const len=(a)=>Math.sqrt(dot(a,a));
+const norm=(a)=>{const l=len(a)||1e-9; return mul(a,1/l)};
+const deg=r=>r*180/Math.PI;
+const angleAt=(a,b,c)=>{ // angle a-b-c in degrees
+  const u=norm(sub(a,b)), w=norm(sub(c,b));
+  return deg(Math.acos(Math.max(-1,Math.min(1,dot(u,w)))));
+};
+
+/* ---------- state ---------- */
+let landmarker=null, frames=[], fps=60, video=null, videoURL=null;
+let axes=null, scale=1, curFrame=0, pIdx={}, stopReq=false;
+let frameOffset=0, videoFrames=0, swings=[];
+
+$('#cDate').value = new Date().toISOString().slice(0,10);
+
+$('#file').addEventListener('change', async e=>{
+  const f = e.target.files && e.target.files[0];
+  if(!f) return;
+  [...$('#libList').children].forEach(x=>x.classList.remove('pri'));
+  await useBlob(f, f.name);
+});
+
+
+/* ---------- impact sound ----------
+   A practice swing looks exactly like a real one to a pose model: same speed,
+   same shape, same body. What separates them is the strike. Reading the audio
+   track costs about a second and tells the two apart, so measure it and mark
+   the candidates — mark, not filter, because a clip may have no usable audio
+   and a range is a noisy place. */
+let snd=null;
+async function readSound(file){
+  snd=null;
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC) throw new Error('この環境では音を扱えません');
+    const ac=new AC();
+    const ab=await ac.decodeAudioData(await file.arrayBuffer());
+    ac.close();
+    const sr=ab.sampleRate, d=ab.getChannelData(0);
+    const hopS=0.005, hop=Math.max(1,Math.round(sr*hopS));
+    const n=Math.floor(d.length/hop);
+    const env=new Float32Array(n);
+    for(let i=0;i<n;i++){
+      let s=0; const a=i*hop, b=Math.min(d.length,a+hop);
+      for(let k=a;k<b;k++) s+=d[k]*d[k];
+      env[i]=Math.sqrt(s/Math.max(1,b-a));
+    }
+    snd={env, hopS};
+    log(`音を読み込みました（${ab.duration.toFixed(1)}秒・${sr}Hz）`);
+  }catch(e){
+    log('※ 音を読み取れませんでした（'+(e&&e.message?e.message:'対応していない形式')
+       +'）。素振りの判別なしで進みます');
+  }
+}
+/* How much louder than its own run-up the loudest moment near t is. A range is
+   full of steady noise and other people's shots, so a plain loudness reading is
+   useless; a sudden rise over the previous third of a second is not. */
+function soundAt(t){
+  if(!snd) return null;
+  const {env,hopS}=snd, n=env.length;
+  const i0=Math.max(0,Math.round((t-0.25)/hopS)), i1=Math.min(n-1,Math.round((t+0.25)/hopS));
+  const back=Math.round(0.30/hopS), skip=Math.round(0.05/hopS);
+  let best=0;
+  for(let i=i0;i<=i1;i++){
+    const a=i-back-skip, b=i-skip;
+    if(a<0||b<=a) continue;
+    let m=0; for(let k=a;k<b;k++) m+=env[k];
+    m/=(b-a);
+    if(m>1e-7) best=Math.max(best, env[i]/m);
+  }
+  return Math.round(best*10)/10;
+}
+const STRUCK=6;        /* a strike runs far above this; a swish does not reach it */
+/* ---------- fps ---------- */
+async function measureFps(){
+  if(!('requestVideoFrameCallback' in HTMLVideoElement.prototype)){
+    log('※ この環境ではfpsを実測できません。60fpsとして扱います');
+    return 60;
+  }
+  const times=[];
+  video.currentTime=0;
+  await video.play().catch(()=>{});
+  await new Promise(res=>{
+    const cb=(now,meta)=>{
+      times.push(meta.mediaTime);
+      if(times.length>=25 || meta.mediaTime>1.2) return res();
+      video.requestVideoFrameCallback(cb);
+    };
+    video.requestVideoFrameCallback(cb);
+    setTimeout(res,2500);
+  });
+  video.pause();
+  const d=[];
+  for(let i=1;i<times.length;i++){ const x=times[i]-times[i-1]; if(x>0.002&&x<0.2) d.push(x); }
+  if(!d.length) return 60;
+  d.sort((a,b)=>a-b);
+  const med=d[Math.floor(d.length/2)];
+  const f=Math.round(1/med);
+  const known=[24,25,30,50,60,90,120,240];
+  const near=known.reduce((p,c)=>Math.abs(c-f)<Math.abs(p-f)?c:p, known[0]);
+  return Math.abs(near-f)<=3 ? near : f;
+}
+
+/* ---------- model ---------- */
+async function loadModel(kind){
+  const t0=performance.now();
+  log('姿勢推定モデルを読み込み中…（初回は数秒かかります）');
+  const fileset = await FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+  landmarker = await PoseLandmarker.createFromOptions(fileset, {
+    baseOptions:{
+      modelAssetPath:`https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${kind}/float16/1/pose_landmarker_${kind}.task`,
+      delegate:'GPU'
+    },
+    runningMode:'VIDEO', numPoses:1,
+    minPoseDetectionConfidence:0.5, minPosePresenceConfidence:0.5, minTrackingConfidence:0.5
+  });
+  log(`モデル読み込み完了 (${((performance.now()-t0)/1000).toFixed(1)}秒)`);
+}
+
+/* ---------- seek helper ---------- */
+function seek(t){
+  return new Promise(res=>{
+    let done=false;
+    const h=()=>{ if(done)return; done=true; video.removeEventListener('seeked',h); res(); };
+    video.addEventListener('seeked',h);
+    video.currentTime=t;
+    setTimeout(h,400);
+  });
+}
+
+/* ---------- analysis ----------
+   Two passes. A lesson video usually holds several shots and a lot of walking
+   about, and running the model over all of it costs minutes for the few seconds
+   that matter. So sweep the whole clip at about ten samples a second to find
+   where the swings are, then re-read only the chosen one frame by frame. */
+$('#stop').addEventListener('click',()=>{ stopReq=true; });
+
+/* MediaPipe wants timestamps that only ever increase, and the two passes walk
+   over the video more than once, so hand it a counter rather than the position
+   in the clip. */
+let stamp=0;
+function infer(){
+  try{
+    stamp+=33;
+    const r=landmarker.detectForVideo(video, stamp);
+    if(r && r.worldLandmarks && r.worldLandmarks.length)
+      return {w:r.worldLandmarks[0].map(v),
+              n:r.landmarks[0].map(p=>({x:p.x,y:p.y,vis:p.visibility!=null?p.visibility:1}))};
+  }catch(err){}
+  return null;
+}
+const fmtT=f=>{ const s=f/fps; return Math.floor(s/60)+':'+(s%60<10?'0':'')+(s%60).toFixed(1); };
+
+/* Pass 1 — where are the swings? */
+async function scanPass(totalFrames){
+  const step=Math.max(1,Math.round(fps/10));
+  const idx=[], hands=[];
+  const t0=performance.now();
+  for(let i=0;i<totalFrames;i+=step){
+    if(stopReq) break;
+    await seek(Math.min(video.duration-1e-3,(i+0.5)/fps));
+    const f=infer();
+    idx.push(i);
+    hands.push(f?mid(f.w[LWR],f.w[RWR]):null);
+    if(idx.length%4===0){
+      $('#prog').style.width=(i/totalFrames*100).toFixed(1)+'%';
+      setStat(`スイングを探しています ${fmtT(i)} / ${fmtT(totalFrames)}  ${((performance.now()-t0)/1000).toFixed(0)}秒`);
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  const dt=step/fps, sp=new Array(idx.length).fill(null);
+  for(let k=1;k<idx.length-1;k++)
+    if(hands[k-1]&&hands[k+1]) sp[k]=len(sub(hands[k+1],hands[k-1]))/(2*dt);
+  const vals=sp.filter(x=>x!=null);
+  log(`ざっと見: ${idx.length}コマ / ${((performance.now()-t0)/1000).toFixed(1)}秒`);
+  if(!vals.length) return [];
+  return findSwingPeaks(sp, idx, step);
+}
+
+/* Pick out one frame per swing from the coarse speed trace. Kept separate from
+   the scanning so it can be exercised on its own. Returns the near misses as
+   well as the hits: when the count comes out wrong, the only way to tell a
+   practice swing that got in from a real shot that got left out is to see what
+   the gate actually did. */
+const medOf=a=>{ const s=a.slice().sort((x,y)=>x-y); return s.length?s[Math.floor(s.length/2)]:0; };
+function findSwingPeaks(sp, idx, step){
+  const vals=sp.filter(x=>x!=null);
+  if(!vals.length) return {hits:[], near:[], gate:0, max:0};
+  /* Three conditions, because each alone fails somewhere. A share of the peak
+     alone finds "swings" in a clip holding none, since the fastest bit of
+     walking becomes the reference. A fixed floor alone is brittle: sampled this
+     coarsely a real swing reads only about 3.4 m/s — the central difference is
+     spanning a fifth of a second, which flattens the peak — so the floor has to
+     sit well under that. And a peak means nothing unless it stands clear of how
+     fast the clip usually moves, which is what the median gives. */
+  const mx=Math.max.apply(null,vals), gate=Math.max(mx*0.45, 2.0, medOf(vals)*2.5);
+  const minGap=Math.max(2,Math.round(fps*2.0/step));
+  const all=[];
+  for(let k=1;k<sp.length-1;k++){
+    if(sp[k]==null||sp[k]<gate*0.55) continue;
+    if((sp[k-1]!=null&&sp[k]<sp[k-1])||(sp[k+1]!=null&&sp[k]<sp[k+1])) continue;
+    all.push(k);
+  }
+  const over=all.filter(k=>sp[k]>=gate).sort((a,b)=>sp[b]-sp[a]);
+  const kept=[];
+  over.forEach(p=>{ if(kept.every(q=>Math.abs(q-p)>=minGap)) kept.push(p); });
+  const keptSet=new Set(kept);
+  const pack=k=>({f:idx[k], v:Math.round(sp[k]*10)/10});
+  return {
+    hits: kept.sort((a,b)=>a-b).map(pack),
+    near: all.filter(k=>!keptSet.has(k)).sort((a,b)=>sp[b]-sp[a]).slice(0,8).map(k=>
+      Object.assign(pack(k), {why: sp[k]<gate ? '速さが足りない' : '直前の山と近すぎる'})),
+    gate: Math.round(gate*10)/10,
+    max: Math.round(mx*10)/10
+  };
+}
+
+/* Pass 2 — read one swing properly */
+async function densePass(centre,totalFrames){
+  const from=Math.max(0, centre-Math.round(fps*3.0));
+  const to  =Math.min(totalFrames-1, centre+Math.round(fps*2.5));
+  frameOffset=from;
+  frames=[];
+  const n=to-from+1;
+  const t0=performance.now();
+  let got=0;
+  for(let i=0;i<n;i++){
+    if(stopReq){ log('中断しました'); break; }
+    await seek(Math.min(video.duration-1e-3,(from+i+0.5)/fps));
+    const f=infer();
+    frames.push(f);
+    if(f) got++;
+    if(i%5===0||i===n-1){
+      $('#prog').style.width=((i+1)/n*100).toFixed(1)+'%';
+      setStat(`解析中 ${i+1}/${n}コマ（検出 ${got}）  ${((performance.now()-t0)/1000).toFixed(1)}秒`);
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  const secs=(performance.now()-t0)/1000;
+  log(`解析: ${frames.length}コマ（動画の${frameOffset}〜${frameOffset+frames.length-1}コマ目）`
+     +` / 検出 ${got}コマ / ${secs.toFixed(1)}秒 （1コマ ${(secs/Math.max(1,frames.length)*1000).toFixed(0)}ms）`);
+  setStat(`解析完了 ${frames.length}コマ・${secs.toFixed(1)}秒・検出率 ${(got/Math.max(1,frames.length)*100).toFixed(0)}%`);
+  return got;
+}
+
+async function analyseSwing(centre){
+  /* leave the list up — the coach often wants the next ball straight after */
+  $('#run').disabled=true; $('#stop').disabled=false;
+  try{
+    const got=await densePass(centre,videoFrames);
+    if(got<10){ log('× 人物をほとんど検出できませんでした。画角や明るさを確認してください'); return; }
+    detectP();
+    buildPUI();
+    $('#viewCard').classList.remove('hide');
+    $('#scrub').max=frames.length-1;
+    await gotoFrame(pIdx.P1||0);
+    recompute();
+  }finally{
+    $('#run').disabled=false; $('#stop').disabled=true;
+  }
+}
+
+$('#run').addEventListener('click', async ()=>{
+  try{
+    stopReq=false; frames=[]; pIdx={}; sig=null; swingRange=null; frameOffset=0;
+    recompute._said=false;
+    $('#run').disabled=true; $('#stop').disabled=false;
+    ['#viewCard','#resCard','#outCard','#swingPick'].forEach(s=>$(s).classList.add('hide'));
+
+    if(!landmarker) await loadModel($('#model').value);
+
+    setStat('fpsを測定中…');
+    fps = await measureFps();
+    videoFrames = Math.max(1, Math.floor(video.duration*fps));
+    log(`実測fps: ${fps} / 全体 ${videoFrames}コマ（${video.duration.toFixed(1)}秒）`);
+
+    video.pause();
+    const scan=await scanPass(videoFrames);
+    if(stopReq){ setStat('中断しました'); return; }
+    const found=scan.hits;
+    found.forEach(h=>{ h.snd=soundAt(h.f/fps); });
+    swings=found.map(h=>h.f);
+
+    log(`手元の最速 ${scan.max}m/s / スイングとみなす下限 ${scan.gate}m/s`);
+    if(found.length)
+      log(`動きの山を ${found.length}件 見つけました: `
+          +found.map((h,i)=>`${i+1}番目 ${fmtT(h.f)} (${h.v}m/s`+(h.snd!=null?`・音${h.snd}倍`:``)+`)`).join(" / "));
+    if(scan.near.length)
+      log('拾わなかった山: '+scan.near.map(h=>`${fmtT(h.f)} (${h.v}m/s・${h.why})`).join(' / '));
+
+    buildSwingPicker(found);
+    if(!found.length){
+      log('スイングらしい動きが見つかりませんでした。真ん中あたりを解析します');
+      await analyseSwing(Math.floor(videoFrames/2));
+      return;
+    }
+    if(found.length===1){ await analyseSwing(found[0].f); return; }
+    /* if the audio says exactly one ball was struck, that is the swing */
+    const struck=found.filter(h=>h.snd!=null && h.snd>=STRUCK);
+    if(struck.length===1){ await analyseSwing(struck[0].f); return; }
+    setStat(struck.length
+      ? `打撃音のあった球が ${struck.length}球 あります。解析するものを選んでください`
+      : `動きの山が ${found.length}件 あります。解析するものを選んでください`);
+  }catch(err){
+    log('× エラー: '+(err && err.message ? err.message : err));
+  }finally{
+    $('#run').disabled=false; $('#stop').disabled=true;
+  }
+});
+
+
+/* The swing list is a starting point, not a verdict: a practice swing reaches
+   the same hand speed as a real one, and a short shot may not. So show what was
+   found, keep it visible after a choice is made, and leave a way to point at a
+   moment the scan missed. */
+function buildSwingPicker(found){
+  const box=$('#swingBtns'); box.innerHTML='';
+  let struck=0;
+  found.forEach(h=>{ if(h.snd!=null && h.snd>=STRUCK) struck++; });
+  let ball=0;
+  found.forEach((h,i)=>{
+    const hit = h.snd!=null && h.snd>=STRUCK;
+    const b=document.createElement('button');
+    b.className='sm';
+    /* number the struck balls 1,2,3… and leave practice swings out of the count,
+       so the list reads the way the lesson did */
+    b.textContent = (h.snd==null)
+      ? `${i+1}番目  ${fmtT(h.f)}`
+      : (hit ? `♪ ${++ball}球目  ${fmtT(h.f)}` : `素振り  ${fmtT(h.f)}`);
+    if(!hit && h.snd!=null) b.style.opacity='.62';
+    b.title = `手元 ${h.v}m/s`+(h.snd!=null?` / 打撃音 ${h.snd}倍`:'');
+    b.onclick=()=>{ stopReq=false; analyseSwing(h.f); };
+    box.appendChild(b);
+  });
+  $('#pickNote').textContent = !found.length
+    ? 'スイングらしい動きは見つかりませんでした。秒数を指定してください。'
+    : (struck
+        ? `打撃音のあった${struck}球に ♪ を付けました。音のないものは素振りとみています（押せば解析できます）。`
+        : `${found.length}件見つかりました。素振りが混じることも、短い球が漏れることもあります。`);
+  $('#swingPick').classList.remove('hide');
+}
+$('#atGo').addEventListener('click',()=>{
+  const s=parseFloat($('#atSec').value);
+  if(!isFinite(s)||!videoFrames){ log('× 秒数を入れてください'); return; }
+  stopReq=false;
+  analyseSwing(Math.max(0,Math.min(videoFrames-1,Math.round(s*fps))));
+});
+/* ---------- per-frame signals ---------- */
+const UP={x:0,y:-1,z:0};
+function handsOf(f){ return mid(f.w[LWR], f.w[RWR]); }
+let sig=null, swingRange=null, topWidth=null;
+
+/* Reject skeletons that are not shaped like a standing person. A single bad
+   frame taken as the address poisons the axes, the height calibration and
+   every "difference from address" number, so it is worth being strict. */
+function plausible(f){
+  if(!f) return false;
+  const sh=mid(f.w[LSH],f.w[RSH]), hp=mid(f.w[LHIP],f.w[RHIP]),
+        kn=mid(f.w[LKNE],f.w[RKNE]), an=mid(f.w[LANK],f.w[RANK]);
+  const above=(a,b)=>dot(sub(a,b),UP)>0.02;
+  if(!above(sh,hp)||!above(hp,kn)||!above(kn,an)) return false;
+  const w=len(sub(f.w[LSH],f.w[RSH]));
+  if(w<0.15||w>0.70) return false;
+  const span=dot(sub(sh,an),UP);            /* shoulders above ankles, metres */
+  if(span<0.45||span>1.65) return false;
+  return true;
+}
+
+function buildSignals(){
+  const n=frames.length;
+  const ok=new Array(n).fill(false), hy=new Array(n).fill(null),
+        hand=new Array(n).fill(null), spine=new Array(n).fill(null),
+        sw=new Array(n).fill(null);
+  let bad=0;
+  for(let i=0;i<n;i++){
+    const f=frames[i];
+    if(!f) continue;
+    if(!plausible(f)){ bad++; continue; }
+    ok[i]=true;
+    hand[i]=handsOf(f);
+    hy[i]=dot(sub(hand[i], mid(f.w[LANK],f.w[RANK])), UP);   /* hands above the ankles */
+    spine[i]=deg(Math.acos(Math.max(-1,Math.min(1,
+      dot(norm(sub(mid(f.w[LSH],f.w[RSH]), mid(f.w[LHIP],f.w[RHIP]))), UP)))));
+    sw[i]=Math.hypot(f.n[LSH].x-f.n[RSH].x, f.n[LSH].y-f.n[RSH].y);
+  }
+  if(bad){
+    /* say where they are, not just how many — a run at the end of the clip is
+       the golfer walking away, a run mid-swing is a tracking failure */
+    const runs=[]; let s0=-1;
+    for(let i=0;i<=n;i++){
+      const isBad = i<n && frames[i] && !ok[i];
+      if(isBad && s0<0) s0=i;
+      else if(!isBad && s0>=0){ runs.push(s0===i-1?String(s0):s0+'〜'+(i-1)); s0=-1; }
+    }
+    log('※ 人の形になっていない骨格 '+bad+'コマを除外: '
+        +runs.slice(0,8).join(', ')+(runs.length>8?' ほか':''));
+  }
+  /* central-difference speed, then a 5-frame median so one tracking jump
+     cannot masquerade as the fastest moment of the swing */
+  const raw=new Array(n).fill(null);
+  for(let i=1;i<n-1;i++)
+    if(hand[i-1]&&hand[i+1]) raw[i]=len(sub(hand[i+1],hand[i-1]))/(2/fps);
+  const sp=new Array(n).fill(null);
+  for(let i=0;i<n;i++){
+    const w=[];
+    for(let k=i-2;k<=i+2;k++) if(k>=0&&k<n&&raw[k]!=null) w.push(raw[k]);
+    if(w.length){ w.sort((a,b)=>a-b); sp[i]=w[Math.floor(w.length/2)]; }
+  }
+  let swMax=0;
+  for(let i=0;i<n;i++) if(ok[i]&&sw[i]!=null&&sw[i]>swMax) swMax=sw[i];
+  sig={ok,hy,hand,spine,sw,sp,swMax};
+  return sig;
+}
+
+/* ---------- P point detection ---------- */
+function detectP(){
+  buildSignals();
+  const ok=sig.ok, hy=sig.hy, hand=sig.hand, spine=sig.spine, sp=sig.sp;
+  const n=frames.length;
+  const vals=sp.filter(x=>x!=null);
+  if(vals.length<10){ log('× 手元の動きを追えませんでした'); return; }
+  /* The still threshold has to sit just above the tracking noise, not at a
+     fixed fraction of the peak: on a noisy clip a fixed fraction leaves every
+     frame looking like motion, and the address search then runs off the front
+     of the video. The lower quartile of the speeds is the resting noise. */
+  const sorted=vals.slice().sort((a,b)=>a-b);
+  const mx=sorted[sorted.length-1];
+  const nfloor=sorted[Math.floor(sorted.length*0.25)];
+  const still=Math.min(mx*0.15, Math.max(0.10, nfloor*2.0, mx*0.02));   /* m/s */
+
+  /* Impact seed: the hands are never faster than they are through the ball. */
+  let imp0=-1;
+  for(let i=0;i<n;i++) if(sp[i]!=null && (imp0<0||sp[i]>sp[imp0])) imp0=i;
+
+  /* Walk back to where the swing began. The hands pause at the top, so a plain
+     threshold walk stops there and mistakes the takeaway for the top — allow up
+     to 0.4 s of quiet before deciding the motion really has ended. */
+  const gap=Math.max(6,Math.round(fps*0.4));
+  let start=imp0, q=0;
+  for(let i=imp0-1;i>=0;i--){
+    if(sp[i]!=null && sp[i]>=still){ q=0; start=i; }
+    else if(++q>gap) break;
+  }
+  let end=imp0; q=0;
+  for(let i=imp0+1;i<n;i++){
+    if(sp[i]!=null && sp[i]>=still){ q=0; end=i; }
+    else if(++q>gap) break;
+  }
+  /* If the clip never goes quiet — heavy tracking jitter, or the golfer moving
+     about the whole time — the walk above runs to the ends of the video and the
+     address lands on frame 0. No golf swing takes three seconds from takeaway to
+     impact, so fall back to a window around impact and say so. */
+  if((imp0-start)/fps>3.0 || (end-imp0)/fps>3.0){
+    start=Math.max(0, imp0-Math.round(fps*1.6));
+    end=Math.min(n-1, imp0+Math.round(fps*1.2));
+    log('※ 静止している場面が見つからないので、インパクト前後だけを見ています');
+  }
+  swingRange=[start,end];
+
+  /* P4: the highest the hands get between the takeaway and impact. Height is
+     unambiguous where a speed dip is not — the top is only a pause, while the
+     frames before the takeaway are a dead stop. The raw height is used on
+     purpose: any symmetric smoothing shifts a peak towards its flatter side,
+     and the backswing side is much flatter than the downswing side. */
+  let top=start;
+  for(let i=start;i<=imp0;i++) if(hy[i]!=null && (hy[top]==null||hy[i]>hy[top])) top=i;
+  let topBand=1;
+  { /* how many frames sit within 1 cm of the top — how ambiguous the top is */
+    let lo=top, hi=top;
+    for(let i=top-1;i>=start;i--){ if(hy[i]==null||hy[top]-hy[i]>0.01) break; lo=i; }
+    for(let i=top+1;i<=imp0;i++){ if(hy[i]==null||hy[top]-hy[i]>0.01) break; hi=i; }
+    topBand=hi-lo+1;
+  }
+
+  /* P1: the last still frame before the takeaway, found by going back from the top */
+  let addr=Math.max(0,start-1), run=0;
+  const need=Math.max(3,Math.round(fps*0.1));
+  for(let i=start;i>=0;i--){
+    if(ok[i]&&sp[i]!=null&&sp[i]<still){ if(++run>=need){ addr=i+run-1; break; } }
+    else run=0;
+  }
+  if(!ok[addr]) for(let j=addr;j<top;j++) if(ok[j]){ addr=j; break; }
+  /* A takeaway begins far too gently for a speed threshold to catch its first
+     frames — the club is well on its way before the hands move fast enough to
+     register, which makes the backswing look shorter than it was. Displacement
+     over a third of a second catches a slow drift that an instantaneous
+     speed misses, so read the address again that way. */
+  {
+    const back=Math.round(fps*0.30);   /* a longer window: true drift accumulates, noise does not */
+    const limit=Math.max(back, addr-Math.round(fps*1.5));   /* do not wander off */
+    let a=addr;
+    for(let i=Math.min(addr,top);i>=limit;i--){
+      if(!ok[i]||!ok[i-back]) continue;
+      if(len(sub(hand[i],hand[i-back]))<0.025){ a=i; break; }
+      a=i-1;
+    }
+    addr=Math.max(0,a);
+    while(addr>0 && !ok[addr]) addr--;
+    if(addr!==Math.max(0,start-1))
+      log('P1を手元の移動量で読み直しました（速さのしきい値では '
+          +Math.max(0,start-1)+'コマ、移動量では '+addr+'コマ）');
+  }
+
+  /* P7: after the top, where the hands come back closest to the address
+     position. Smooth the distance first — a single jittery frame otherwise
+     wins the search outright. */
+  let imp=imp0;
+  {
+    const hi=Math.min(n-1,top+Math.round(fps*0.8));
+    const d=new Array(n).fill(null);
+    for(let i=top+1;i<=hi;i++) if(ok[i]&&ok[addr]) d[i]=len(sub(hand[i],hand[addr]));
+    let best=Infinity;
+    for(let i=top+1;i<=hi;i++){
+      const w=[];
+      for(let k=i-2;k<=i+2;k++) if(d[k]!=null) w.push(d[k]);
+      if(!w.length) continue;
+      w.sort((a,b)=>a-b);
+      const m=w[Math.floor(w.length/2)];
+      if(m<best){ best=m; imp=i; }
+    }
+  }
+
+  /* arm-horizontal points */
+  const armAng=(f,sh,wr)=>{ const d=sub(f.w[wr],f.w[sh]);
+    return deg(Math.atan2(-d.y, Math.sqrt(d.x*d.x+d.z*d.z))); };   /* 0 = level */
+  const nearest=(from,to,sh,wr)=>{
+    let bi=-1,bv=Infinity;
+    for(let i=Math.max(0,from);i<=Math.min(n-1,to);i++){
+      if(!ok[i])continue;
+      const a=Math.abs(armAng(frames[i],sh,wr));
+      if(a<bv){bv=a;bi=i}
+    }
+    return bi<0?Math.max(0,Math.min(n-1,from)):bi;
+  };
+  const p3=nearest(addr,top,LSH,LWR);
+  const p6=nearest(top,imp,LSH,LWR);
+  const p9=nearest(imp+1,Math.min(n-1,imp+Math.round(fps*0.8)),RSH,RWR);
+
+  /* P10: the finish. Take the quietest moment within a second and a half of
+     impact rather than waiting for the golfer to be completely still — plenty
+     of players relax straight out of the finish and walk off, and a "wait for
+     stillness" search then runs on until they are standing upright, which is
+     not a finish position at all. */
+  let fin=-1, slowest=Infinity;
+  const finHi=Math.min(n-1, imp+Math.round(fps*1.5));
+  for(let i=Math.max(p9,imp)+1;i<=finHi;i++){
+    if(!ok[i]||sp[i]==null) continue;
+    if(sp[i]<slowest){ slowest=sp[i]; fin=i; }
+  }
+  if(fin<0) fin=Math.min(n-1, Math.max(p9,imp)+Math.round(fps*0.5));
+  /* Never leave a P point on a frame whose skeleton was rejected — the numbers
+     would be computed from a pose the detector itself did not believe. */
+  const snap=j=>{
+    if(ok[j]) return j;
+    for(let d=1;d<=Math.round(fps*0.5);d++){
+      if(j-d>=0 && ok[j-d]) return j-d;
+      if(j+d<n && ok[j+d]) return j+d;
+    }
+    return j;
+  };
+  pIdx={P1:snap(addr),P3:snap(p3),P4:snap(top),P6:snap(p6),P7:snap(imp),P9:snap(p9),P10:snap(fin)};
+  topWidth=topBand;
+  log('スイング区間 '+start+'〜'+end+'コマ / 手元の最速 '+mx.toFixed(1)+'m/s ('+imp0+'コマ)'
+      +' / 静止とみなす速さ '+still.toFixed(2)+'m/s');
+  log('自動判定: '+P_KEYS.map(k=>k+'='+pIdx[k]).join(' / '));
+  log('トップ付近（手元の高さが1cm以内）は '+topBand+'コマ'
+      +(topBand>7?' — この中のどこがトップか動画で確かめてください':''));
+  log('アドレス→トップ '+((top-addr)/fps).toFixed(2)+'秒 / トップ→インパクト '
+      +((imp-top)/fps).toFixed(2)+'秒 / インパクト→フィニッシュ '
+      +((fin-imp)/fps).toFixed(2)+'秒');
+
+  /* Say out loud when the result cannot be right, rather than exporting it quietly */
+  const warn=[];
+  if(spine[addr]!=null && spine[addr]<15)
+    warn.push('P1の前傾が'+spine[addr].toFixed(0)+'°しかありません（立った姿勢を掴んでいます）');
+  if(hy[top]!=null && hy[addr]!=null && hy[top]-hy[addr]<0.20)
+    warn.push('トップで手元が上がっていません');
+  if(spine[top]!=null && spine[top]<12)
+    warn.push('P4の前傾が'+spine[top].toFixed(0)+'°しかありません（トップではありえません）');
+  if((imp-top)/fps>0.6)
+    warn.push('トップ→インパクトが'+((imp-top)/fps).toFixed(2)+'秒と長すぎます');
+  if((top-addr)/fps<0.40)
+    warn.push('アドレス→トップが'+((top-addr)/fps).toFixed(2)+'秒と短すぎます（P1が遅すぎる可能性）');
+  if((top-addr)/fps>2.0)
+    warn.push('アドレス→トップが'+((top-addr)/fps).toFixed(2)+'秒と長すぎます');
+  warn.forEach(w=>log('△ '+w+' — グラフを見てP点を手で直してください'));
+
+  /* Filmed down the line, the shoulders point straight at the lens at address,
+     so the image says almost nothing about which way that line runs. Every turn
+     figure is measured against that frame, so the zero point is soft even when
+     the frames themselves are clean. Worth saying once, plainly. */
+  if(sig.sw[pIdx.P1]!=null && sig.swMax>1e-6 && sig.sw[pIdx.P1]/sig.swMax<0.25)
+    log('△ アドレスでは肩がカメラを向くため、回転角の基準（0°）は精度が落ちます。'
+      + '角度そのものより、P点どうしの差を見てください');
+}
+
+/* ---------- axes & scale ---------- */
+/* Read the address from a short run of frames, not one, so a single bad
+   skeleton cannot tilt the target line or blow up the height calibration. */
+function addrFrames(){
+  const a=[], i0=pIdx.P1;
+  for(let i=Math.max(0,i0-Math.round(fps*0.25));i<=i0;i++)
+    if(frames[i] && (!sig||sig.ok[i])) a.push(frames[i]);
+  if(!a.length && frames[i0]) a.push(frames[i0]);
+  return a;
+}
+const med=a=>{ const s=a.slice().sort((x,y)=>x-y); return s.length?s[Math.floor(s.length/2)]:0; };
+function buildAxes(){
+  const A=addrFrames();
+  if(!A.length) return null;
+  const up=UP;
+  let t={x:med(A.map(f=>f.w[LANK].x-f.w[RANK].x)), y:0, z:med(A.map(f=>f.w[LANK].z-f.w[RANK].z))};
+  if(len(t)<1e-4)
+    t={x:med(A.map(f=>f.w[LHIP].x-f.w[RHIP].x)), y:0, z:med(A.map(f=>f.w[LHIP].z-f.w[RHIP].z))};
+  if(len(t)<1e-4) return null;
+  t=norm(t);
+  return {up, t, ball:norm(cross(up,t))};      /* ball points in front of the golfer */
+}
+function buildScale(){
+  const A=addrFrames();
+  if(!A.length) return 1;
+  const span=med(A.map(f=>{
+    const ys=[f.w[NOSE].y, f.w[LANK].y, f.w[RANK].y];
+    return Math.max(ys[0],ys[1],ys[2])-Math.min(ys[0],ys[1],ys[2]);   /* nose→ankle, metres */
+  }));
+  const est=span*1.12;                         /* add the head above the nose */
+  const target=(+$('#cHeight').value||170)/100;
+  return est>0.2 ? target/est : 1;
+}
+
+/* ---------- metrics ---------- */
+function yaw(vec){ return Math.atan2(dot(vec,axes.ball), dot(vec,axes.t)); }
+function metricsAt(i){
+  const f=frames[i], base=frames[pIdx.P1];
+  if(!f||!base) return null;
+  const M=100*scale;                       /* metres → cm with height calibration */
+  const hipMid=mid(f.w[LHIP],f.w[RHIP]), shMid=mid(f.w[LSH],f.w[RSH]);
+  const hipMid0=mid(base.w[LHIP],base.w[RHIP]);
+  const hands=handsOf(f), hands0=handsOf(base);
+  /* World landmarks are hip-centred: the hip midpoint is the origin of every
+     frame, so anything measured as "how far the hips moved" against it comes
+     out as exactly zero. The ankles are what stays put on the ground, so
+     movement of the body is measured against them instead. */
+  const ank=mid(f.w[LANK],f.w[RANK]), ank0=mid(base.w[LANK],base.w[RANK]);
+  const overGround=(p,q)=>sub(sub(p,ank), sub(q,ank0));
+
+  const shYaw=deg(yaw(sub(f.w[LSH],f.w[RSH])) - yaw(sub(base.w[LSH],base.w[RSH])));
+  const hpYaw=deg(yaw(sub(f.w[LHIP],f.w[RHIP])) - yaw(sub(base.w[LHIP],base.w[RHIP])));
+  const wrap=a=>{while(a>180)a-=360;while(a<-180)a+=360;return a};
+
+  const spine=sub(shMid,hipMid);
+  const spineAngle=deg(Math.acos(Math.max(-1,Math.min(1,dot(norm(spine),axes.up)))));
+
+  const dHand=overGround(hands,hands0);
+  const torso=norm(sub(shMid,hipMid));
+  const elbowVec=sub(f.w[REL],hipMid);
+  const along=dot(elbowVec,torso);
+  const elbowPerp=len(sub(elbowVec,mul(torso,along)));
+
+  const ankSpan=dot(sub(f.w[LANK],f.w[RANK]),axes.t)||1e-6;
+  const wl=(dot(sub(hipMid,f.w[RANK]),axes.t)/ankSpan)*100;
+
+  const hinge=180-angleAt(f.w[LEL], f.w[LWR], f.w[LIDX]);
+
+  return {
+    shoulderTurn: r1(-wrap(shYaw)),
+    hipTurn:      r1(-wrap(hpYaw)),
+    spineAngle:   r1(spineAngle),
+    hipLateral:   r1(-dot(overGround(hipMid,hipMid0),axes.t)*M),
+    headHeight:   r1(dot(overGround(f.w[NOSE],base.w[NOSE]),axes.up)*M),
+    handAlong:    r1(dot(dHand,axes.t)*M),
+    handHeight:   r1(dot(dHand,axes.up)*M),
+    handDistance: r1(len(sub(hands,hipMid))*M),
+    elbowR:       r1(elbowPerp*M),
+    wristHinge:   r1(Math.max(0,hinge)),
+    kneeFlexL:    r1(180-angleAt(f.w[LHIP],f.w[LKNE],f.w[LANK])),
+    kneeFlexR:    r1(180-angleAt(f.w[RHIP],f.w[RKNE],f.w[RANK])),
+    weightLeft:   r1(Math.max(0,Math.min(100,wl)))
+  };
+}
+const r1=x=>Math.round(x*10)/10;
+
+/* confidence for the rotation axes: landmark visibility + how much the
+   shoulder line is foreshortened (a turned torso is harder to read) */
+function turnConfidence(i){
+  const f=frames[i];
+  if(!f||!sig) return 0;
+  const vis=[LSH,RSH,LHIP,RHIP].map(k=>f.n[k].vis||0);
+  const visMin=Math.min.apply(null,vis);
+  /* Down the line, the shoulder line points straight at the camera at address
+     and swings across the view at the top — so on screen it is at its NARROWEST
+     when the golfer is square and widest when turned, the opposite way round
+     from a face-on camera. When it is edge-on there is almost nothing in the
+     image to fix its direction and the rotation rests on the model's depth
+     guess, so measure width against the widest the clip ever shows, not
+     against the address frame. */
+  const w=sig.sw[i];
+  const fore=(w!=null && sig.swMax>1e-6) ? Math.min(1, w/sig.swMax) : 0;
+  return Math.round(Math.max(0,Math.min(1, visMin*0.45 + fore*0.55))*100);
+}
+
+/* ---------- drawing ---------- */
+const BONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],
+             [23,25],[25,27],[24,26],[26,28],[27,31],[28,32],[0,11],[0,12]];
+async function gotoFrame(i){
+  curFrame=Math.max(0,Math.min(frames.length-1,i));
+  $('#scrub').value=curFrame;
+  await seek(Math.min(video.duration-1e-3,(frameOffset+curFrame+0.5)/fps));
+  drawFrame();
+  drawGraph();
+  const at=P_KEYS.filter(k=>pIdx[k]===curFrame);
+  /* 動画全体でのコマ番号で表示する — 手元の動画と突き合わせやすいように */
+  $("#fpos").textContent=`${curFrame+frameOffset}コマ (${((curFrame+frameOffset)/fps).toFixed(2)}s)`
+    + (at.length?'  ← '+at.join(','):'');
+  document.querySelectorAll('.pcell').forEach(el=>{
+    el.classList.toggle('on', pIdx[el.dataset.k]===curFrame);
+  });
+}
+function drawFrame(){
+  const cv=$('#cv'), ctx=cv.getContext('2d');
+  const W=video.videoWidth, H=video.videoHeight;
+  if(cv.width!==W){ cv.width=W; cv.height=H; }
+  ctx.drawImage(video,0,0,W,H);
+  const f=frames[curFrame];
+  if(!f){ ctx.fillStyle='rgba(255,91,91,.85)'; ctx.font=`${Math.round(H/26)}px sans-serif`;
+    ctx.fillText('検出なし',18,H-18); return; }
+  const n=f.n;
+  ctx.lineWidth=Math.max(2,W/280); ctx.strokeStyle='#3ddc84'; ctx.lineCap='round';
+  ctx.shadowColor='rgba(0,0,0,.8)'; ctx.shadowBlur=4;
+  BONES.forEach(([a,b])=>{
+    ctx.beginPath(); ctx.moveTo(n[a].x*W,n[a].y*H); ctx.lineTo(n[b].x*W,n[b].y*H); ctx.stroke();
+  });
+  ctx.fillStyle='#fff';
+  n.forEach((p,k)=>{ if(k>32)return; ctx.beginPath();
+    ctx.arc(p.x*W,p.y*H,Math.max(2.5,W/230),0,Math.PI*2); ctx.fill(); });
+  /* hands marker */
+  const hx=(n[LWR].x+n[RWR].x)/2*W, hy=(n[LWR].y+n[RWR].y)/2*H;
+  ctx.strokeStyle='#ffd23d'; ctx.beginPath();
+  ctx.arc(hx,hy,Math.max(6,W/70),0,Math.PI*2); ctx.stroke();
+}
+
+/* ---------- P point UI ---------- */
+function buildPUI(){
+  const g=$('#pgrid'); g.innerHTML='';
+  P_KEYS.forEach(k=>{
+    const d=document.createElement('div');
+    d.className='pcell'; d.dataset.k=k;
+    d.innerHTML=`<div class="pn">${P_LABEL[k]}</div>
+      <div class="pv" id="pv_${k}">${pIdx[k]+frameOffset}</div>
+      <div class="row">
+        <button class="sm" data-a="-1">−1</button>
+        <button class="sm" data-a="1">+1</button>
+        <button class="sm" data-a="set">現在のコマ</button>
+        <button class="sm" data-a="go">表示</button>
+      </div>`;
+    d.addEventListener('click',e=>{
+      const b=e.target.closest('button'); if(!b)return;
+      const a=b.dataset.a;
+      if(a==='go'){ gotoFrame(pIdx[k]); return; }
+      if(a==='set') pIdx[k]=curFrame;
+      else pIdx[k]=Math.max(0,Math.min(frames.length-1,pIdx[k]+(+a)));
+      $('#pv_'+k).textContent=pIdx[k]+frameOffset;
+      gotoFrame(pIdx[k]); recompute();
+    });
+    g.appendChild(d);
+  });
+}
+$('#scrub').addEventListener('input',e=>gotoFrame(+e.target.value));
+$('#f1b').onclick=()=>gotoFrame(curFrame-1);
+$('#f1f').onclick=()=>gotoFrame(curFrame+1);
+$('#f10b').onclick=()=>gotoFrame(curFrame-10);
+$('#f10f').onclick=()=>gotoFrame(curFrame+10);
+
+
+/* ---------- timeline graph ----------
+   The auto-detection is a guess, so show the evidence it was made from:
+   hand height, hand speed and spine angle across the whole clip. The top of
+   the backswing is the green peak, impact is the yellow peak, and standing
+   upright shows as the blue line collapsing to zero. */
+function drawGraph(){
+  const cv=$('#graph');
+  if(!sig || !frames.length) return;
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  const W=Math.max(200,cv.clientWidth), H=118;
+  if(cv.width!==Math.round(W*dpr)){ cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr); }
+  const g=cv.getContext('2d');
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,W,H);
+  const n=frames.length, X=i=>n>1?i/(n-1)*(W-2)+1:W/2;
+  const TOP=26, BOT=H-3;
+
+  if(swingRange){                       /* the stretch treated as the swing */
+    g.fillStyle='rgba(255,255,255,.06)';
+    g.fillRect(X(swingRange[0]),TOP,Math.max(1,X(swingRange[1])-X(swingRange[0])),BOT-TOP);
+  }
+  const range=a=>{ let lo=Infinity,hi=-Infinity;
+    for(let i=0;i<a.length;i++) if(a[i]!=null){ if(a[i]<lo)lo=a[i]; if(a[i]>hi)hi=a[i]; }
+    return hi>lo?{lo,hi}:{lo:0,hi:1}; };
+  const line=(a,col,wdt)=>{
+    const r=range(a);
+    g.strokeStyle=col; g.lineWidth=wdt; g.beginPath();
+    let pen=false;
+    for(let i=0;i<n;i++){
+      if(a[i]==null){ pen=false; continue; }
+      const y=BOT-(a[i]-r.lo)/(r.hi-r.lo)*(BOT-TOP);
+      if(pen) g.lineTo(X(i),y); else { g.moveTo(X(i),y); pen=true; }
+    }
+    g.stroke();
+  };
+  g.fillStyle='rgba(255,91,91,.55)';           /* frames whose skeleton was rejected */
+  for(let i=0;i<n;i++) if(frames[i]&&!sig.ok[i]) g.fillRect(X(i)-0.6,BOT-3,1.6,3);
+  line(sig.spine,'rgba(127,176,255,.75)',1.2);
+  line(sig.sp,'#ffd23d',1.4);
+  line(sig.hy,'#3ddc84',1.8);
+
+  g.font='600 10px -apple-system,system-ui,sans-serif'; g.textAlign='center';
+  /* The seven P points can fall inside a second of an eight-second clip, so
+     lay the labels out on two rows and only drop to the second row when the
+     one before it would actually be overlapped. */
+  const marks=P_KEYS.map(k=>({k,i:pIdx[k]})).filter(m=>m.i!=null).sort((a,b)=>a.i-b.i);
+  let lastX=[-1e9,-1e9];
+  marks.forEach(m=>{
+    const x=X(m.i), tx=Math.max(11,Math.min(W-11,x));
+    const row = (tx-lastX[0]>=18) ? 0 : ((tx-lastX[1]>=18) ? 1 : 0);
+    lastX[row]=tx;
+    g.strokeStyle='rgba(255,255,255,.4)'; g.lineWidth=1;
+    g.beginPath(); g.moveTo(x,TOP); g.lineTo(x,BOT); g.stroke();
+    g.fillStyle='#cfd8e3';
+    g.fillText(m.k, tx, row?21:10);
+  });
+  const cx=X(curFrame);
+  g.strokeStyle='#ff5b5b'; g.lineWidth=1.5;
+  g.beginPath(); g.moveTo(cx,0); g.lineTo(cx,BOT); g.stroke();
+}
+$('#graph').addEventListener('click',e=>{
+  if(!frames.length) return;
+  const r=e.currentTarget.getBoundingClientRect();
+  gotoFrame(Math.round((e.clientX-r.left)/r.width*(frames.length-1)));
+});
+window.addEventListener('resize',()=>{ if(sig) drawGraph(); });
+/* ---------- results ---------- */
+const AXES=[
+  ['shoulderTurn','肩の回転','°'],['hipTurn','腰の回転','°'],['spineAngle','前傾角','°'],
+  ['hipLateral','腰の左右','cm'],['headHeight','頭の高さ','cm'],['handAlong','手元・前後','cm'],
+  ['handHeight','手元・高さ','cm'],['handDistance','手元・距離','cm'],['elbowR','右肘・距離','cm'],
+  ['wristHinge','手首コック','°'],['kneeFlexL','左膝','°'],['kneeFlexR','右膝','°'],
+  ['weightLeft','左荷重','%']
+];
+let lastOut=null;
+function recompute(){
+  axes=buildAxes(); scale=buildScale();
+  if(!axes){ log('× アドレスのコマで骨格が取れていません'); return; }
+  /* Depth is much the weakest of the three axes a single camera gives. Filmed
+     down the line the target line runs straight away from the lens, so hip
+     slide and weight share — both measured along that line — are depth
+     readings and nothing else. They come out looking like numbers, so drop
+     them rather than let them be read as measurements. */
+  const alongCam = Math.abs(axes.t.z);
+  const dropDepth = alongCam>0.7;
+  const cur={}, conf={};
+  P_KEYS.forEach(k=>{
+    const m=metricsAt(pIdx[k]);
+    if(!m) return;
+    if(dropDepth){ delete m.hipLateral; delete m.weightLeft; }
+    cur[k]=m; conf[k]=turnConfidence(pIdx[k]);
+  });
+  if(dropDepth && !recompute._said){
+    recompute._said=true;
+    log('※ 後方からの撮影では目標線が奥行き方向になるため、'
+      + '腰の左右位置と左荷重は測れません（この2行は書き出しません）');
+  }
+
+  let html='<thead><tr><th>軸</th>'+P_KEYS.map(k=>`<th>${k}</th>`).join('')+'</tr></thead><tbody>';
+  AXES.forEach(([key,label,unit])=>{
+    html+=`<tr><td>${label} <span class="muted">${unit}</span></td>`;
+    P_KEYS.forEach(k=>{ const m=cur[k]; html+=`<td>${m&&m[key]!=null?m[key]:'—'}</td>`; });
+    html+='</tr>';
+  });
+  html+='<tr><td>回転の確からしさ <span class="muted">%</span></td>'+
+    P_KEYS.map(k=>{ const c=conf[k]; const cls=c>=70?'ok':(c>=45?'warn':'bad');
+      return `<td><span class="tag ${cls}">${c!=null?c:'—'}</span></td>`; }).join('')+'</tr>';
+  html+='</tbody>';
+  $('#tbl').innerHTML=html;
+  $('#resCard').classList.remove('hide');
+
+  /* global */
+  const back=(pIdx.P4-pIdx.P1)/fps, down=(pIdx.P7-pIdx.P4)/fps;
+  const f1=frames[pIdx.P1];
+  const global={};
+  if(down>0.02) global.tempoRatio=Math.round(back/down*10)/10;
+  if(f1){
+    const sw=len(sub(f1.w[LSH],f1.w[RSH])), aw=len(sub(f1.w[LANK],f1.w[RANK]));
+    if(sw>0.05) global.stanceWidth=Math.round(aw/sw*100);
+  }
+  global.finishHold=Math.round(Math.max(0,(frames.length-1-pIdx.P10)/fps)*10)/10;
+
+  /* P点は動画全体でのコマ番号で書き出す（解析はその一部だけを見ている） */
+  const frameMap={}; P_KEYS.forEach(k=>frameMap[k]=pIdx[k]+frameOffset);
+  lastOut={
+    customer:{
+      name:$('#cName').value||'（お客様名）',
+      heightCm:+$('#cHeight').value||170,
+      capturedAt:$('#cDate').value||new Date().toISOString().slice(0,10),
+      analysisId:$('#cId').value||'SW-0000-00',
+      coach:$('#cCoach').value||'（担当プロ名）'
+    },
+    current:cur,
+    global,
+    frames:frameMap,
+    _meta:{
+      fps, totalFrames:videoFrames || frames.length,
+      analysedFrames:frames.length, frameOffset,
+      swingsFound:swings.length,
+      detected:frames.filter(Boolean).length,
+      model:$('#model').value,
+      view:'down-the-line',
+      handed:'right',
+      turnConfidence:conf,
+      usable:sig?sig.ok.filter(Boolean).length:null,
+      swingRange:swingRange&&[swingRange[0]+frameOffset,swingRange[1]+frameOffset],
+      topAmbiguityFrames:topWidth,
+      /* the raw signals behind the automatic judgement, so a wrong result can
+         be diagnosed from the exported file alone */
+      signals:Object.fromEntries(P_KEYS.map(k=>{
+        const i=pIdx[k];
+        const g=(a,m)=>(sig&&a[i]!=null)?Math.round(a[i]*m)/10:null;
+        return [k,{
+          handAboveAnkleCm: sig&&sig.hy[i]!=null?Math.round(sig.hy[i]*1000)/10:null,
+          handSpeed:        g(sig?sig.sp:[],10),
+          spineAngle:       g(sig?sig.spine:[],10),
+          shoulderWidthPx:  sig&&sig.sw[i]!=null?Math.round(sig.sw[i]*1000)/1000:null
+        }];
+      })),
+      note:'wristBow / faceAngle / shaftPlane はクラブ追跡が必要なため未計測。後方撮りでは hipLateral と weightLeft が奥行き方向になるため出力しない。wristHinge は左手人差し指の追跡に依存するため参考値。'
+    }
+  };
+  drawGraph();
+  $('#json').value=JSON.stringify(lastOut,null,2);
+  $('#outCard').classList.remove('hide');
+}
+['#cName','#cHeight','#cDate','#cId','#cCoach'].forEach(s=>
+  $(s).addEventListener('input',()=>{ if(lastOut) recompute(); }));
+
+$('#dl').onclick=()=>{
+  if(!lastOut)return;
+  const b=new Blob([JSON.stringify(lastOut,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);
+  a.download=`swing-analysis_${(lastOut.customer.analysisId||'SW').replace(/[^\w-]/g,'')}.json`;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000);
+};
+$('#copy').onclick=async()=>{
+  try{ await navigator.clipboard.writeText($('#json').value); $('#copied').textContent='コピーしました'; }
+  catch(e){ $('#copied').textContent='コピーできませんでした（手動で選択してください）'; }
+  setTimeout(()=>$('#copied').textContent='',2500);
+};
+
+
+/* ---------- swings saved in the app ----------
+   SwingFrame keeps its recordings in the same browser database, so when both
+   pages are served from one place this lab can read them straight out and the
+   file picking disappears. Opened read-only and with the same version, so it
+   can never disturb what the app stores. */
+function openLib(){
+  return new Promise(function(res,rej){
+    if(!window.indexedDB) return rej(new Error('この環境では保存分を読めません'));
+    var r=indexedDB.open('swingframe',2);
+    r.onupgradeneeded=function(){
+      var d=r.result;
+      if(!d.objectStoreNames.contains('clips'))d.createObjectStore('clips',{keyPath:'id'});
+      if(!d.objectStoreNames.contains('shots'))d.createObjectStore('shots',{keyPath:'id'});
+    };
+    r.onsuccess=function(){res(r.result)};
+    r.onerror=function(){rej(r.error)};
+  });
+}
+function libClips(){
+  return openLib().then(function(db){
+    return new Promise(function(res,rej){
+      var t=db.transaction('clips','readonly').objectStore('clips').getAll();
+      t.onsuccess=function(){ res((t.result||[]).sort(function(a,b){return b.id-a.id})) };
+      t.onerror=function(){ rej(t.error) };
+    });
+  });
+}
+const jpDate=ts=>{ const d=new Date(ts); return isNaN(d)?'':
+  `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+
+async function useBlob(blob, label){
+  if(videoURL) URL.revokeObjectURL(videoURL);
+  videoURL=URL.createObjectURL(blob);
+  video=document.createElement('video');
+  video.src=videoURL; video.muted=true; video.playsInline=true; video.preload='auto';
+  await new Promise((res,rej)=>{ video.onloadedmetadata=res;
+    video.onerror=()=>rej(new Error('この動画は再生できません（コーデック非対応の可能性）')); })
+    .catch(err=>{ log('× '+err.message); });
+  if(!video.videoWidth){ setStat('動画を読み込めませんでした'); return false; }
+  setStat(`${video.videoWidth}×${video.videoHeight} / ${video.duration.toFixed(2)}秒`);
+  log(`動画: ${label} ${video.videoWidth}×${video.videoHeight} ${video.duration.toFixed(2)}秒`);
+  $('#run').disabled=false;
+  await readSound(blob);
+  return true;
+}
+
+async function showLibrary(){
+  let clips=[];
+  try{ clips=await libClips(); }
+  catch(e){ $('#libNote').textContent='アプリの保存分を読めませんでした。下からファイルを選んでください。'; return; }
+  const box=$('#libList'); box.innerHTML='';
+  if(!clips.length){
+    $('#libNote').textContent='アプリに保存されたスイングはまだありません。下からファイルを選んでください。';
+    return;
+  }
+  $('#libNote').textContent='アプリに保存したスイングです。押すとそのまま解析できます。';
+  clips.slice(0,24).forEach(c=>{
+    const b=document.createElement('button');
+    b.className='sm';
+    b.textContent=(c.fav?'★ ':'')+jpDate(c.ts)+(c.note?'  '+c.note.slice(0,12):'');
+    b.onclick=async()=>{
+      [...box.children].forEach(x=>x.classList.remove('pri'));
+      b.classList.add('pri');
+      await useBlob(c.blob, jpDate(c.ts));
+    };
+    box.appendChild(b);
+  });
+  $('#libCard').classList.remove('hide');
+  /* opened from the app's review screen with a clip in hand */
+  const want=new URLSearchParams(location.search).get('clip');
+  if(want){
+    const c=clips.find(x=>String(x.id)===String(want));
+    if(c){ log('アプリから渡されたスイングを読み込みます'); await useBlob(c.blob, jpDate(c.ts)); }
+  }
+}
+showLibrary();
+log('準備完了。動画ファイルを選んでください。');
+</script>
+</body>
+</html>
