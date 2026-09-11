@@ -296,7 +296,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <h1>SwingFrame</h1>
       <p>スイング撮影・スイング分析</p>
       <!-- 表示用の版数。sw.js の CACHE と必ずそろえること（片方だけ上げると更新に気づけません） -->
-      <div id="hVer">v26</div>
+      <div id="hVer">v27</div>
     </div>
     <button class="hbtn pri" id="hShoot"><i>●</i><span>スイングを撮影<em>ガイドに合わせて自動で録画</em></span></button>
     <button class="hbtn" id="hLib"><i>▤</i><span>ライブラリ<em id="hLibSub">保存した動画と画像</em></span></button>
@@ -466,8 +466,8 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
   <div class="pop right" id="rSavePop">
     <div class="popttl">保存先</div>
     <div id="dests">
-      <button data-d="app" class="on">アプリ</button>
-      <button data-d="roll">カメラロール</button>
+      <button data-d="app">アプリ</button>
+      <button data-d="roll" class="on">カメラロール</button>
       <button data-d="share">他のアプリ</button>
     </div>
     <div class="muted" id="destHint" style="font-size:12px;margin:-4px 0 8px;line-height:1.5"></div>
@@ -1650,15 +1650,19 @@ function dl(blob,name){
 }
 /* One destination at a time: the app's own library, the camera roll, or
    handing the file to another app. */
-var dest='app';
+function destHintFor(d){
+  return d==='roll' ? '共有メニューが開きます。「ビデオを保存」を選ぶとカメラロールに入ります。'
+       : d==='app'  ? '撮った動画は自動でライブラリに入ります。ここは線を入れた動画と画像の保存用です。'
+       : '';
+}
+var dest='roll';
 $('#dests').addEventListener('click',function(e){
   var b=e.target.closest('button');if(!b)return;
   dest=b.dataset.d;
   Array.prototype.forEach.call($('#dests').children,function(x){
     x.classList.toggle('on',x.dataset.d===dest);
   });
-  $('#destHint').textContent = dest==='roll'
-    ? '共有メニューが開きます。「ビデオを保存」を選ぶとカメラロールに入ります。' : '';
+  $('#destHint').textContent = destHintFor(dest);
 });
 function canShare(file){
   try{return !!(navigator.canShare&&navigator.share&&navigator.canShare({files:[file]}))}
@@ -1666,14 +1670,26 @@ function canShare(file){
 }
 function saveTo(blob,name,kind,meta){
   if(dest==='app'){
+    /* Every recording already lands in the library the moment it stops, so
+       putting the untouched original back would simply make a second copy of
+       the same swing. Saying so is more use than quietly duplicating it.
+       Drawings and trims produce a genuinely different video, and still frames
+       are not stored anywhere else, so those do belong here. */
+    if(kind==='video' && meta && meta.original){
+      toast('この動画はすでにライブラリにあります');
+      return Promise.resolve();
+    }
     var p = kind==='image'
       ? addShot({id:Date.now(),ts:new Date().toISOString(),blob:blob,
           note:(meta&&meta.note)||'',from:(meta&&meta.from)||null})
       : addClip({id:Date.now(),ts:new Date().toISOString(),blob:blob,
           guide:(meta&&meta.guide)||S.guide,fps:fps,slot:slot,type:blob.type,
           swing:null,note:(meta&&meta.note)||'',fav:false,cut:true});
-    return p.then(function(){ toast('アプリに保存しました'); refreshHome(); })
-            .catch(function(){ toast('保存できませんでした'); });
+    return p.then(function(){
+        toast(kind==='image'?'画像をライブラリに保存しました':'線を入れた動画をライブラリに保存しました');
+        refreshHome();
+      })
+      .catch(function(){ toast('保存できませんでした'); });
   }
   /* The camera roll is not writable from a web page on iPhone — the share menu
      is the only way in, and the person taps 「ビデオを保存」 there themselves.
@@ -1736,7 +1752,7 @@ $('#rSave').onclick=function(){
   var t1=sw?Math.min(dur||1e9,sw+(S.post||5)):(dur||0);
   var needTrim=sw&&(t0>0.3||(dur&&t1<dur-0.3));
   if(!lines.length&&!needTrim){
-    saveTo(cur.blob,'swing_'+cur.id+'.'+ext,'video',{guide:cur.guide,note:cur.note});
+    saveTo(cur.blob,'swing_'+cur.id+'.'+ext,'video',{guide:cur.guide,note:cur.note,original:true});
     return;
   }
   if(!rv.videoWidth){toast('映像がありません');return}
@@ -1746,7 +1762,7 @@ $('#rSave').onclick=function(){
   var st=c.captureStream?c.captureStream(30):null;
   var m=mime();
   if(!st||m===null){
-    saveTo(cur.blob,'swing_'+cur.id+'.'+ext,'video',{guide:cur.guide,note:cur.note});
+    saveTo(cur.blob,'swing_'+cur.id+'.'+ext,'video',{guide:cur.guide,note:cur.note,original:true});
     return;
   }
   var ad=reviewAudio();
@@ -1755,7 +1771,7 @@ $('#rSave').onclick=function(){
   var outStream=new MediaStream(tracks);
   var rec;
   try{rec=new MediaRecorder(outStream,m?{mimeType:m,videoBitsPerSecond:8000000}:{})}
-  catch(e){saveTo(cur.blob,'swing_'+cur.id+'.'+ext,'video',{guide:cur.guide,note:cur.note});return}
+  catch(e){saveTo(cur.blob,'swing_'+cur.id+'.'+ext,'video',{guide:cur.guide,note:cur.note,original:true});return}
   var parts=[],raf=0,k=W/(rc.width/(window.devicePixelRatio||1)),stopped=false;
   rec.ondataavailable=function(e){if(e.data&&e.data.size)parts.push(e.data)};
   rec.onstop=function(){
@@ -2037,6 +2053,7 @@ rc.addEventListener('pointercancel',function(){drawing=null;redraw()});
   applyAll();
   prepRef();prepFront();
   $('#rColors').querySelector('button').classList.add('on');
+  $('#destHint').textContent = destHintFor(dest);
   syncWidth();syncMeta();refreshHome();
   syncDraw();
   $('#colDot').style.color='#3ddc84';

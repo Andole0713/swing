@@ -2,7 +2,7 @@
    Navigations are always fetched fresh so a re-uploaded index.html shows up
    immediately; the cache only stands in when the network fails. */
 /* index.html の #hVer と必ずそろえること */
-var CACHE = 'swingframe-v26';
+var CACHE = 'swingframe-v27';
 var CORE = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', function (e) {
