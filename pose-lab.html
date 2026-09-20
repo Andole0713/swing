@@ -198,6 +198,10 @@ textarea{width:100%;height:210px;background:#0b0f13;color:var(--fg);border:1px s
       <button class="sm" data-v="side" id="vSide">横に並べる</button>
       <button class="sm" data-v="ideal" id="vIdeal">理想だけ</button>
       <button class="sm" data-v="over" id="vOver">重ねる</button>
+      <span class="muted" style="margin-left:6px">太さ</span>
+      <button class="sm" data-t="0.75" id="wThin">細</button>
+      <button class="sm pri" data-t="1" id="wMid">中</button>
+      <button class="sm" data-t="1.5" id="wFat">太</button>
       <button class="sm" id="idealReset">すべて戻す</button>
       <button class="pri" id="idealSave">動画で書き出す</button>
     </div>
@@ -1262,91 +1266,64 @@ async function gotoFrame(i){
     el.classList.toggle('on', pIdx[el.dataset.k]===curFrame);
   });
 }
-/* Draw the figure as a body rather than a stick. Widths come from the person's
-   own trunk length, so a tall player gets a tall figure and a stocky one a
-   stocky figure.
+/* Drawing for comparison, not decoration.
 
-   The parts are painted opaque onto a scratch canvas first and that canvas is
-   then composited once. Filling them straight onto the frame at part-opacity
-   leaves every seam and overlap visible, and the figure reads as a pile of
-   tubes instead of a person. */
-const TAU=Math.PI*2;
-let _silCv=null;
-function silCtx(W,H){
-  if(!_silCv) _silCv=document.createElement('canvas');
-  if(_silCv.width!==W||_silCv.height!==H){ _silCv.width=W; _silCv.height=H; }
-  const c=_silCv.getContext('2d');
-  c.clearRect(0,0,W,H);
-  return c;
-}
-/* Each part is filled on its own. Collecting them into one path and filling
-   once looks tidier but is wrong: subpaths that wind opposite ways cancel each
-   other under the nonzero rule, punching holes where a limb crosses the trunk.
-   On an opaque scratch canvas, painting them one by one simply merges. */
-function capsule(ctx,a,b,r1,r2){
-  const dx=b.x-a.x, dy=b.y-a.y, L=Math.hypot(dx,dy);
-  const dot=(p,r)=>{ ctx.beginPath(); ctx.arc(p.x,p.y,r,0,TAU); ctx.fill(); };
-  if(L<1e-6){ dot(a,r1); return; }
-  const px=-dy/L, py=dx/L;
-  ctx.beginPath();
-  ctx.moveTo(a.x+px*r1, a.y+py*r1);
-  ctx.lineTo(b.x+px*r2, b.y+py*r2);
-  ctx.lineTo(b.x-px*r2, b.y-py*r2);
-  ctx.lineTo(a.x-px*r1, a.y-py*r1);
-  ctx.closePath(); ctx.fill();
-  dot(a,r1); dot(b,r2);
-}
-function silhouette(ctx,pts,W,H,colour,alpha,glow,seeMin){
-  const P=i=>pts[i] && ({x:pts[i].x*W, y:pts[i].y*H});
-  const ok=i=>pts[i] && (pts[i].vis==null || pts[i].vis>=seeMin);
-  const mid2=(a,b)=>({x:(a.x+b.x)/2, y:(a.y+b.y)/2});
-  if(!ok(11)||!ok(12)||!ok(23)||!ok(24)) return;
-  const ls=P(11), rs=P(12), lh=P(23), rh=P(24);
-  const sh=mid2(ls,rs), hp=mid2(lh,rh);
-  /* the trunk sets the scale; seen from behind the shoulders can almost
-     overlap, so their spacing is no use as a yardstick */
-  const u=Math.max(8, Math.hypot(sh.x-hp.x, sh.y-hp.y));
-  const c=silCtx(W,H);
-  c.fillStyle=colour;
-  capsule(c,sh,hp,u*0.36,u*0.30);                 /* trunk */
-  if(ok(0)){
-    const nose=P(0);
-    const neck={x:sh.x+(nose.x-sh.x)*0.35, y:sh.y+(nose.y-sh.y)*0.35};
-    capsule(c,sh,neck,u*0.16,u*0.13);
-    c.beginPath(); c.arc(nose.x,nose.y,u*0.30,0,TAU); c.fill();
-  }
-  capsule(c,ls,rs,u*0.17,u*0.17);                 /* shoulder girdle */
-  capsule(c,lh,rh,u*0.20,u*0.20);                 /* hips */
-  [[11,13,0.155,0.115],[12,14,0.155,0.115],
-   [13,15,0.115,0.085],[14,16,0.115,0.085],
-   [23,25,0.205,0.145],[24,26,0.205,0.145],
-   [25,27,0.145,0.100],[26,28,0.145,0.100],
-   [27,31,0.095,0.075],[28,32,0.095,0.075]].forEach(b=>{
-    if(!ok(b[0])||!ok(b[1]))return;
-    capsule(c,P(b[0]),P(b[1]),u*b[2],u*b[3]);
-  });
-  ctx.save();
-  ctx.globalAlpha=alpha;
-  if(glow){ ctx.shadowColor=glow; ctx.shadowBlur=Math.max(5,W/140); }
-  ctx.drawImage(_silCv,0,0);
-  ctx.restore();
-}
-function skeleton(ctx,pts,W,H,col,dotCol,lw){
-  /* a joint the model cannot actually see is guesswork; leave it out rather
-     than draw a limb in the wrong place */
+   Four things make two skeletons readable side by side:
+   a dark casing under every line, so it holds up over any background;
+   a dashed target against a solid body, so the two are told apart even where
+   they sit on top of each other; bigger dots on the joints a coach talks about;
+   and a short line from each joint to where it should be. */
+const KEY_JOINTS=[0,11,12,13,14,15,16,23,24,25,26,27,28];
+let skelW=1;                 /* 0.75 細い / 1 ふつう / 1.5 太い */
+function skeleton(ctx,pts,W,H,col,dotCol,lw,dashed){
   const seen=i=>pts[i] && (pts[i].vis==null || pts[i].vis>=DRAW_SEE);
-  ctx.lineWidth=lw; ctx.strokeStyle=col; ctx.lineCap='round';
-  ctx.shadowColor='rgba(0,0,0,.8)'; ctx.shadowBlur=4;
-  BONES.forEach(([a,b])=>{
-    if(!seen(a)||!seen(b))return;
-    ctx.beginPath(); ctx.moveTo(pts[a].x*W,pts[a].y*H); ctx.lineTo(pts[b].x*W,pts[b].y*H); ctx.stroke();
-  });
-  if(dotCol){
-    ctx.fillStyle=dotCol;
-    pts.forEach((p,k)=>{ if(k>32||!seen(k))return; ctx.beginPath();
-      ctx.arc(p.x*W,p.y*H,Math.max(2.5,W/230),0,Math.PI*2); ctx.fill(); });
+  const w=lw*skelW;
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  /* casing first: a dark line a little wider than the coloured one, so the
+     figure reads against a bright shirt and a dark net alike */
+  for(let pass=0;pass<2;pass++){
+    ctx.setLineDash(pass===1&&dashed ? [w*2.6, w*2.0] : []);
+    ctx.strokeStyle = pass===0 ? 'rgba(0,0,0,.55)' : col;
+    ctx.lineWidth   = pass===0 ? w*2.1 : w;
+    BONES.forEach(([a,b])=>{
+      if(!seen(a)||!seen(b))return;
+      ctx.beginPath();
+      ctx.moveTo(pts[a].x*W,pts[a].y*H); ctx.lineTo(pts[b].x*W,pts[b].y*H);
+      ctx.stroke();
+    });
   }
-  ctx.shadowBlur=0;
+  ctx.setLineDash([]);
+  if(dotCol){
+    for(let i=0;i<=32;i++){
+      if(!seen(i))continue;
+      const big=KEY_JOINTS.indexOf(i)>=0;
+      const r=w*(big?1.5:0.8);
+      ctx.beginPath(); ctx.arc(pts[i].x*W,pts[i].y*H,r+w*0.5,0,Math.PI*2);
+      ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(pts[i].x*W,pts[i].y*H,r,0,Math.PI*2);
+      ctx.fillStyle=dotCol; ctx.fill();
+    }
+  }
+}
+/* Where a joint has to move, show the move itself: a line from where it is to
+   where it should be. Small differences are left alone — every joint wobbles a
+   little and marking all of them would say nothing. */
+function drawGaps(ctx,now,want,W,H,lw){
+  const min=H*0.018;
+  const w=lw*skelW;
+  KEY_JOINTS.forEach(i=>{
+    if(!now[i]||!want[i])return;
+    if(now[i].vis!=null && now[i].vis<DRAW_SEE)return;
+    const ax=now[i].x*W, ay=now[i].y*H, bx=want[i].x*W, by=want[i].y*H;
+    if(Math.hypot(bx-ax,by-ay)<min)return;
+    ctx.lineCap='round';
+    ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.lineWidth=w*1.9;
+    ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=w*0.75;
+    ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.95)';
+    ctx.beginPath(); ctx.arc(bx,by,w*0.85,0,Math.PI*2); ctx.fill();
+  });
 }
 /* Overlaying both skeletons on one body reads as a tangle once the correction
    is more than a few degrees, so the coach picks how to show it. */
@@ -1360,25 +1337,20 @@ function panel(ctx,x,W,H,which,lw){
   ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip();
   ctx.drawImage(video,0,0,W,H);
   const f=frames[curFrame];
-  /* the silhouette carries its own glow; a page-level shadow here would
-     double up on it */
-  /* the target goes down first so the golfer's own body stays on top — it is
-     what they came to look at */
-  if(which!=='real'){
-    const g=idealScreen(curFrame);
-    /* full strength where it differs, faint where it already matches — the eye
-       should land on what needs changing, not on the parts that are fine */
-    const on=idealActive(curFrame);
-    if(g) silhouette(ctx,g,W,H,'#ffc628', on?0.55:0.18,
-      on?'rgba(255,214,90,.9)':null, DRAW_SEE);
-  }
-  if(which!=='ideal') silhouette(ctx,f.ns||f.n,W,H,'#3ddc84',0.42,
-    'rgba(61,220,132,.9)', DRAW_SEE);
-  ctx.shadowBlur=0;
+  const now=f.ns||f.n;
+  const g=which!=='real' ? idealScreen(curFrame) : null;
+  const on=idealActive(curFrame);
+  /* the target goes down first so the golfer's own movement stays on top — it
+     is what they came to look at */
+  if(g) skeleton(ctx,g,W,H, on?'rgba(255,208,50,.98)':'rgba(255,208,50,.34)',
+    which==='ideal'?(on?'#ffe9a8':'rgba(255,233,168,.4)'):null, lw, true);
+  if(which!=='ideal') skeleton(ctx,now,W,H,'#3ddc84','#eafff2',lw,false);
+  /* both bodies on one picture: show each joint the distance it has to travel */
+  if(which==='both' && g && on) drawGaps(ctx,now,g,W,H,lw);
   if(which!=='ideal'){
-    const n=f.ns||f.n;
-    ctx.strokeStyle='#ffd23d'; ctx.lineWidth=lw; ctx.beginPath();
-    ctx.arc((n[LWR].x+n[RWR].x)/2*W,(n[LWR].y+n[RWR].y)/2*H,Math.max(6,W/70),0,Math.PI*2);
+    ctx.strokeStyle='#ffd23d'; ctx.lineWidth=lw*skelW;
+    ctx.beginPath();
+    ctx.arc((now[LWR].x+now[RWR].x)/2*W,(now[LWR].y+now[RWR].y)/2*H,Math.max(6,W/70),0,Math.PI*2);
     ctx.stroke();
   }
   const label = which==='real' ? 'いまの動き' : which==='ideal' ? '目標の動き' : '';
@@ -1658,6 +1630,15 @@ function setView(v){
   if(b) b.addEventListener('click',()=>setView(v));
 });
 setView(viewMode);
+['wThin','wMid','wFat'].forEach(id=>{
+  const b=$('#'+id);
+  if(!b) return;
+  b.addEventListener('click',()=>{
+    skelW=+b.dataset.t;
+    ['wThin','wMid','wFat'].forEach(k=>$('#'+k).classList.toggle('pri',k===id));
+    drawFrame();
+  });
+});
 
 
 
@@ -2154,7 +2135,6 @@ async function showLibrary(){
   }
 }
 showLibrary();
-window.__lab={set frames(v){frames=v},set fps(v){fps=v},set pIdx(v){pIdx=v},set axes(v){axes=v},set scale(v){scale=v},set ideal(v){ideal=v},smoothDrawPoints,buildIdealUI,drawFrame};
 log('準備完了。動画ファイルを選んでください。');
 </script>
 </body>
