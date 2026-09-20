@@ -59,6 +59,18 @@ textarea{width:100%;height:210px;background:#0b0f13;color:var(--fg);border:1px s
   background:#0b0f13;border:1px solid var(--line);cursor:crosshair}
 .glegend{margin-top:5px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 .glegend b{font-weight:600}
+.planbar{background:#0b0f13;border:1px solid var(--line);border-radius:10px;
+  padding:11px 12px;margin-bottom:14px;display:flex;flex-direction:column;gap:7px}
+.planbar b{font-size:13.5px;white-space:nowrap}
+.irow{display:grid;grid-template-columns:86px 92px 1fr 128px;gap:10px;align-items:center;
+  padding:7px 0;border-bottom:1px solid var(--line)}
+.irow:last-child{border-bottom:0}
+.ilab{font-size:13.5px}
+.inow{font-size:12.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+.itgt{font-size:12.5px;color:var(--dim);font-variant-numeric:tabular-nums;text-align:right}
+.irow input[type=range]{width:100%;padding:0}
+@media(max-width:620px){.irow{grid-template-columns:1fr 1fr;grid-auto-rows:auto}
+  .irow input[type=range]{grid-column:1/-1}.itgt{text-align:left}}
 .hide{display:none}
 </style>
 </head>
@@ -150,8 +162,33 @@ textarea{width:100%;height:210px;background:#0b0f13;color:var(--fg);border:1px s
     <div class="tblwrap"><table id="tbl"></table></div>
   </div>
 
+  <div class="card hide" id="idealCard">
+    <h2>6. 理想のスイングを作る</h2>
+    <div class="muted" style="margin-bottom:9px">
+      お客様ご本人の骨格を変形させます。P点を選んでスライダーを動かすと、
+      その時点の目標が決まり、スイング全体になめらかに配分されます。
+    </div>
+    <div class="planbar">
+      <div class="row">
+        <b>指示コンソールの結果を読み込む</b>
+        <input id="planFile" type="file" accept="application/json,.json" style="width:auto;flex:1;min-width:190px">
+      </div>
+      <div class="muted" id="planNote">このページが書き出したJSONを指示コンソールに読ませ、そこで出来た指示書をここへ戻します。手で動かしたいときは下のスライダーでも構いません。</div>
+    </div>
+    <div class="row" id="idealTabs" style="margin-bottom:10px"></div>
+    <div id="idealRows"></div>
+    <div class="row" style="margin-top:12px">
+      <span class="muted">見せ方</span>
+      <button class="sm" data-v="side" id="vSide">横に並べる</button>
+      <button class="sm" data-v="ideal" id="vIdeal">理想だけ</button>
+      <button class="sm" data-v="over" id="vOver">重ねる</button>
+      <button class="sm" id="idealReset">すべて戻す</button>
+      <button class="pri" id="idealSave">動画で書き出す</button>
+    </div>
+  </div>
+
   <div class="card hide" id="outCard">
-    <h2>6. 書き出し</h2>
+    <h2>7. 書き出し</h2>
     <div class="row" style="margin-bottom:10px">
       <button class="pri" id="dl">JSONをダウンロード</button>
       <button id="copy">クリップボードにコピー</button>
@@ -889,6 +926,191 @@ function turnConfidence(i){
   return Math.round(Math.max(0,Math.min(1, visMin*0.45 + fore*0.55))*100);
 }
 
+
+/* ---------- the ideal swing ----------
+   Bend the golfer's own skeleton rather than drawing a model figure: their
+   build, their arm length, their stance — only the numbers the coach wants
+   changed actually change, so what comes out still looks like them.
+
+   A target is set at one P point, but a swing is continuous, so the correction
+   is spread smoothly across the whole motion instead of snapping on at that one
+   frame. */
+const IDEAL_AXES=[
+  ['shoulderTurn','肩の回転','°',-20,20],
+  ['hipTurn','腰の回転','°',-20,20],
+  ['spineAngle','前傾角','°',-15,15],
+  ['headHeight','頭の高さ','cm',-15,15],
+  ['handAlong','手元・前後','cm',-10,10],
+  ['handHeight','手元・高さ','cm',-20,20],
+  ['handDistance','手元・距離','cm',-10,10],
+  ['elbowR','右肘・距離','cm',-12,12]
+];
+const UPPER=[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22];
+const HEAD=[0,1,2,3,4,5,6,7,8,9,10];
+const HIPS=[23,24], KNEES=[25,26];
+let ideal={};              /* {P4:{shoulderTurn:8}, …} — deltas, not absolutes */
+let showIdeal=true;
+
+/* orthonormal frame {t, ball, up}: rotating within it is a plain 2-D rotation */
+/* Two-bone inverse kinematics: shoulder and wrist are given, find the elbow
+   that keeps both bone lengths. The elbow is kept on the side it was already
+   on, so the arm does not flip inside out between frames. */
+function ikElbow(S,W,prev,upper,fore){
+  const v=sub(W,S); let d=len(v);
+  if(d<1e-5) return prev;
+  const hi=upper+fore-1e-4, lo=Math.abs(upper-fore)+1e-4;
+  d=Math.max(lo,Math.min(hi,d));
+  const u=mul(v,1/len(v));
+  const x=(d*d+upper*upper-fore*fore)/(2*d);
+  const h=Math.sqrt(Math.max(0,upper*upper-x*x));
+  let p=sub(prev,S);
+  p=sub(p, mul(u,dot(p,u)));
+  if(len(p)<1e-5){
+    p=cross(u,axes.up);
+    if(len(p)<1e-5) p=cross(u,axes.t);
+  }
+  p=norm(p);
+  return add(S, add(mul(u,x), mul(p,h)));
+}
+/* rotate a point about an arbitrary axis through an origin (Rodrigues) */
+function rotAxis(p,origin,u,th){
+  const v=sub(p,origin), c=Math.cos(th), s=Math.sin(th);
+  return add(origin, add(add(mul(v,c), mul(cross(u,v),s)), mul(u,dot(u,v)*(1-c))));
+}
+/* how far a point sits off a line through `o` in direction `axis` */
+function perpFrom(p,o,axis){
+  const v=sub(p,o);
+  return len(sub(v, mul(axis,dot(v,axis))));
+}
+function rotIn(p,origin,u,v,th){
+  const d=sub(p,origin);
+  const a=dot(d,u), b=dot(d,v), rest=sub(d, add(mul(u,a),mul(v,b)));
+  const c=Math.cos(th), s=Math.sin(th);
+  return add(origin, add(add(mul(u,a*c-b*s), mul(v,a*s+b*c)), rest));
+}
+
+/* Deltas at every frame: zero outside the swing, the set value at its own P
+   point, straight-line blend in between. */
+function idealAt(i){
+  const keys=P_KEYS.filter(k=>ideal[k]&&Object.keys(ideal[k]).length);
+  const out={}; IDEAL_AXES.forEach(a=>out[a[0]]=0);
+  if(!keys.length) return out;
+  const pts=P_KEYS.map(k=>({f:pIdx[k], d:ideal[k]||{}})).sort((a,b)=>a.f-b.f);
+  IDEAL_AXES.forEach(([key])=>{
+    let lo=null,hi=null;
+    for(const p of pts){
+      if(p.f<=i && (!lo||p.f>=lo.f)) lo=p;
+      if(p.f>=i && (!hi||p.f<=hi.f)) hi=p;
+    }
+    const lv=lo?(lo.d[key]||0):0, hv=hi?(hi.d[key]||0):0;
+    if(!lo||!hi||lo.f===hi.f){ out[key]=lo?lv:hv; return; }
+    const u=(i-lo.f)/(hi.f-lo.f);
+    out[key]=lv+(hv-lv)*u;
+  });
+  return out;
+}
+
+/* Apply those deltas to one frame's world landmarks. */
+function deform(i){
+  const f=frames[i];
+  if(!f||!axes) return null;
+  const d=idealAt(i);
+  if(IDEAL_AXES.every(a=>!d[a[0]])) return null;
+  const w=f.w.map(p=>({x:p.x,y:p.y,z:p.z}));
+  const hipMid=mid(w[LHIP],w[RHIP]);
+  const rad=x=>x*Math.PI/180;
+
+  /* forward bend: swing the upper body about the target line through the hips.
+     More spine angle means the chest drops towards the ball. */
+  if(d.spineAngle){
+    const th=rad(d.spineAngle);
+    UPPER.forEach(k=>{ w[k]=rotIn(w[k],hipMid,axes.ball,axes.up,-th); });
+  }
+  /* shoulder turn: +  is away from the target, which is a fall in yaw */
+  if(d.shoulderTurn){
+    const shMid=mid(w[LSH],w[RSH]);
+    const th=rad(-d.shoulderTurn);
+    UPPER.forEach(k=>{ w[k]=rotIn(w[k],shMid,axes.t,axes.ball,th); });
+  }
+  /* hips turn the same way; the knees are dragged about half as far and the
+     feet stay planted, which is roughly what legs do */
+  if(d.hipTurn){
+    const th=rad(-d.hipTurn);
+    HIPS.forEach(k=>{ w[k]=rotIn(w[k],hipMid,axes.t,axes.ball,th); });
+    KNEES.forEach(k=>{ w[k]=rotIn(w[k],hipMid,axes.t,axes.ball,th*0.4); });
+  }
+  if(d.headHeight){
+    const m=mul(axes.up, d.headHeight/100/(scale||1));
+    HEAD.forEach(k=>{ w[k]=add(w[k],m); });
+  }
+  /* Hands. Move the wrists where the coach asked and let the elbows follow,
+     so the arm keeps its own bone lengths instead of stretching. */
+  if(d.handAlong||d.handHeight||d.handDistance){
+    const m=1/100/(scale||1);
+    const hip2=mid(w[LHIP],w[RHIP]);
+    const hands=mid(w[LWR],w[RWR]);
+    let mv=add(mul(axes.t, (d.handAlong||0)*m), mul(axes.up, (d.handHeight||0)*m));
+    if(d.handDistance){
+      const away=sub(hands,hip2);
+      if(len(away)>1e-4) mv=add(mv, mul(norm(away), d.handDistance*m));
+    }
+    [[LSH,LEL,LWR],[RSH,REL,RWR]].forEach(arm=>{
+      const s=arm[0], e=arm[1], wr=arm[2];
+      const upper=len(sub(w[e],w[s])), fore=len(sub(w[wr],w[e]));
+      const prev=w[e];
+      w[wr]=add(w[wr],mv);
+      /* an arm cannot be longer than it is: if the target is out of reach,
+         stop the wrist at full stretch rather than tearing the limb apart */
+      const v=sub(w[wr],w[s]), dl=len(v);
+      const reach=upper+fore-1e-4;
+      if(dl>reach) w[wr]=add(w[s], mul(mul(v,1/dl), reach));
+      w[e]=ikElbow(w[s],w[wr],prev,upper,fore);
+    });
+  }
+  /* Right elbow: swing it around the shoulder-to-wrist line. That swivel moves
+     the elbow away from the body without moving the hands at all, which is
+     exactly what "keep the right elbow in" is asking for. */
+  if(d.elbowR){
+    const hip3=mid(w[LHIP],w[RHIP]);
+    const torso=norm(sub(mid(w[LSH],w[RSH]),hip3));
+    const want=perpFrom(w[REL],hip3,torso) + d.elbowR/100/(scale||1);
+    const S=w[RSH], Wr=w[RWR], ax=sub(Wr,S);
+    if(len(ax)>1e-4){
+      const u=norm(ax);
+      let best=w[REL], err=Math.abs(perpFrom(w[REL],hip3,torso)-want);
+      for(let k=1;k<72;k++){
+        const cand=rotAxis(w[REL],S,u,k*Math.PI*2/72);
+        const e2=Math.abs(perpFrom(cand,hip3,torso)-want);
+        if(e2<err){ err=e2; best=cand; }
+      }
+      w[REL]=best;
+    }
+  }
+  return w;
+}
+
+/* World landmarks and screen landmarks are reported separately, so fit the one
+   to the other on this frame and reuse the fit for the moved points. Depth is
+   ignored — near enough for a fixed camera, and a turn still reads correctly
+   because the shoulders widen on screen as they come round. */
+function fitProj(i){
+  const f=frames[i]; if(!f) return null;
+  let sx=0,sy=0,ux=0,uy=0,sxx=0,syy=0,pxy=0,qxy=0,n=0;
+  for(let k=0;k<33;k++){
+    const a=f.w[k], b=f.n[k];
+    sx+=a.x; sy+=a.y; ux+=b.x; uy+=b.y;
+    sxx+=a.x*a.x; syy+=a.y*a.y; pxy+=a.x*b.x; qxy+=a.y*b.y; n++;
+  }
+  const dx=n*sxx-sx*sx, dy=n*syy-sy*sy;
+  if(Math.abs(dx)<1e-9||Math.abs(dy)<1e-9) return null;
+  const ax=(n*pxy-sx*ux)/dx, ay=(n*qxy-sy*uy)/dy;
+  return {ax, bx:(ux-ax*sx)/n, ay, by:(uy-ay*sy)/n};
+}
+function idealScreen(i){
+  const w=deform(i); if(!w) return null;
+  const P=fitProj(i); if(!P) return null;
+  return w.map(p=>({x:P.ax*p.x+P.bx, y:P.ay*p.y+P.by}));
+}
 /* ---------- drawing ---------- */
 const BONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],
              [23,25],[25,27],[24,26],[26,28],[27,31],[28,32],[0,11],[0,12]];
@@ -907,30 +1129,83 @@ async function gotoFrame(i){
     el.classList.toggle('on', pIdx[el.dataset.k]===curFrame);
   });
 }
-function drawFrame(){
-  const cv=$('#cv'), ctx=cv.getContext('2d');
-  const W=video.videoWidth, H=video.videoHeight;
-  if(cv.width!==W){ cv.width=W; cv.height=H; }
-  ctx.drawImage(video,0,0,W,H);
-  /* a skeleton the checks rejected is worse than none — say so instead of drawing
-     a broken figure, which is exactly what happens around impact */
-  const bad = sig && !sig.ok[curFrame];
-  const f=frames[curFrame];
-  if(!f||bad){ ctx.fillStyle="rgba(255,91,91,.85)"; ctx.font=`${Math.round(H/26)}px sans-serif`;
-    ctx.fillText(f?"骨格が乱れています":"検出なし",18,H-18); return; }
-  const n=f.n;
-  ctx.lineWidth=Math.max(2,W/280); ctx.strokeStyle='#3ddc84'; ctx.lineCap='round';
+function skeleton(ctx,pts,W,H,col,dotCol,lw){
+  ctx.lineWidth=lw; ctx.strokeStyle=col; ctx.lineCap='round';
   ctx.shadowColor='rgba(0,0,0,.8)'; ctx.shadowBlur=4;
   BONES.forEach(([a,b])=>{
-    ctx.beginPath(); ctx.moveTo(n[a].x*W,n[a].y*H); ctx.lineTo(n[b].x*W,n[b].y*H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pts[a].x*W,pts[a].y*H); ctx.lineTo(pts[b].x*W,pts[b].y*H); ctx.stroke();
   });
-  ctx.fillStyle='#fff';
-  n.forEach((p,k)=>{ if(k>32)return; ctx.beginPath();
-    ctx.arc(p.x*W,p.y*H,Math.max(2.5,W/230),0,Math.PI*2); ctx.fill(); });
-  /* hands marker */
-  const hx=(n[LWR].x+n[RWR].x)/2*W, hy=(n[LWR].y+n[RWR].y)/2*H;
-  ctx.strokeStyle='#ffd23d'; ctx.beginPath();
-  ctx.arc(hx,hy,Math.max(6,W/70),0,Math.PI*2); ctx.stroke();
+  if(dotCol){
+    ctx.fillStyle=dotCol;
+    pts.forEach((p,k)=>{ if(k>32)return; ctx.beginPath();
+      ctx.arc(p.x*W,p.y*H,Math.max(2.5,W/230),0,Math.PI*2); ctx.fill(); });
+  }
+  ctx.shadowBlur=0;
+}
+/* Overlaying both skeletons on one body reads as a tangle once the correction
+   is more than a few degrees, so the coach picks how to show it. */
+let viewMode='side';        /* over | side | ideal */
+function outSize(){
+  const W=video.videoWidth, H=video.videoHeight;
+  return viewMode==='side' ? {w:W*2, h:H, one:W} : {w:W, h:H, one:W};
+}
+function panel(ctx,x,W,H,which,lw){
+  ctx.save(); ctx.translate(x,0);
+  ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip();
+  ctx.drawImage(video,0,0,W,H);
+  const f=frames[curFrame];
+  /* the ideal goes down first so the golfer's own movement stays on top — it is
+     what they came to look at, and the thicker target line would bury it */
+  if(which!=='real'){
+    const g=idealScreen(curFrame);
+    if(g) skeleton(ctx,g,W,H,'rgba(255,210,61,.95)',which==='ideal'?'#fff':null,lw*1.15);
+  }
+  if(which!=='ideal') skeleton(ctx,f.n,W,H,'#3ddc84','#fff',lw);
+  if(which!=='ideal'){
+    const n=f.n;
+    ctx.strokeStyle='#ffd23d'; ctx.lineWidth=lw; ctx.beginPath();
+    ctx.arc((n[LWR].x+n[RWR].x)/2*W,(n[LWR].y+n[RWR].y)/2*H,Math.max(6,W/70),0,Math.PI*2);
+    ctx.stroke();
+  }
+  const label = which==='real' ? 'いまの動き' : which==='ideal' ? '目標の動き' : '';
+  if(label){
+    ctx.font=`600 ${Math.round(H/30)}px sans-serif`;
+    ctx.lineWidth=Math.max(3,H/160); ctx.strokeStyle='rgba(0,0,0,.75)';
+    ctx.fillStyle = which==='real' ? '#3ddc84' : '#ffd23d';
+    ctx.strokeText(label,18,Math.round(H/24)+10); ctx.fillText(label,18,Math.round(H/24)+10);
+  }
+  ctx.restore();
+}
+function paintFrame(ctx,W,H){
+  const s=outSize();
+  const bad = sig && !sig.ok[curFrame];
+  const f=frames[curFrame];
+  if(!f||bad){
+    ctx.drawImage(video,0,0,s.one,s.h);
+    if(viewMode==='side') ctx.drawImage(video,s.one,0,s.one,s.h);
+    ctx.fillStyle='rgba(255,91,91,.85)'; ctx.font=`${Math.round(s.h/26)}px sans-serif`;
+    ctx.fillText(f?'骨格が乱れています':'検出なし',18,s.h-18);
+    return;
+  }
+  const lw=Math.max(2,s.one/280);
+  const has=showIdeal && Object.keys(ideal).some(k=>Object.keys(ideal[k]||{}).length);
+  if(viewMode==='side' && has){
+    panel(ctx,0,s.one,s.h,'real',lw);
+    panel(ctx,s.one,s.one,s.h,'ideal',lw);
+    ctx.strokeStyle='rgba(255,255,255,.35)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(s.one,0); ctx.lineTo(s.one,s.h); ctx.stroke();
+  }else if(viewMode==='ideal' && has){
+    panel(ctx,0,s.one,s.h,'ideal',lw);
+  }else{
+    panel(ctx,0,s.one,s.h,has?'both':'real',lw);
+  }
+}
+function drawFrame(){
+  if(!video||!video.videoWidth) return;
+  const cv=$('#cv'), ctx=cv.getContext('2d');
+  const s=outSize();
+  if(cv.width!==s.w||cv.height!==s.h){ cv.width=s.w; cv.height=s.h; }
+  paintFrame(ctx,s.w,s.h);
 }
 
 
@@ -1081,6 +1356,173 @@ $('#graph').addEventListener('click',e=>{
   gotoFrame(Math.round((e.clientX-r.left)/r.width*(frames.length-1)));
 });
 window.addEventListener('resize',()=>{ if(sig) drawGraph(); });
+
+/* ---------- ideal-swing controls ---------- */
+let idealP='P4';
+function buildIdealUI(){
+  const tabs=$('#idealTabs'); tabs.innerHTML='';
+  P_KEYS.forEach(k=>{
+    const b=document.createElement('button');
+    b.className='sm'+(k===idealP?' pri':'');
+    b.textContent=k;
+    b.onclick=()=>{ idealP=k; gotoFrame(pIdx[k]); buildIdealUI(); };
+    tabs.appendChild(b);
+  });
+  const box=$('#idealRows'); box.innerHTML='';
+  const now=metricsAt(pIdx[idealP])||{};
+  IDEAL_AXES.forEach(([key,label,unit,lo,hi])=>{
+    const cur=now[key], d=(ideal[idealP]&&ideal[idealP][key])||0;
+    const row=document.createElement('div');
+    row.className='irow';
+    row.innerHTML=`<span class="ilab">${label}</span>
+      <span class="inow">今 ${cur!=null?cur:'—'}${unit}</span>
+      <input type="range" min="${lo}" max="${hi}" step="0.5" value="${d}" data-k="${key}">
+      <span class="itgt"></span>`;
+    const tgt=row.querySelector('.itgt');
+    const show=()=>{
+      const v=+row.querySelector('input').value;
+      tgt.textContent = v ? `→ ${r1((cur||0)+v)}${unit} (${v>0?'+':''}${v})` : '変更なし';
+      tgt.style.color = v ? 'var(--accent)' : 'var(--dim)';
+    };
+    row.querySelector('input').addEventListener('input',e=>{
+      const v=+e.target.value;
+      ideal[idealP]=ideal[idealP]||{};
+      if(v) ideal[idealP][key]=v; else delete ideal[idealP][key];
+      show(); drawFrame();
+    });
+    show();
+    box.appendChild(row);
+  });
+  $('#idealCard').classList.remove('hide');
+}
+$('#idealReset').addEventListener('click',()=>{ ideal={}; buildIdealUI(); drawFrame(); });
+function setView(v){
+  viewMode=v; showIdeal=true;
+  ['side','ideal','over'].forEach(k=>{
+    const b=$('#v'+k[0].toUpperCase()+k.slice(1));
+    if(b) b.classList.toggle('pri',k===v);
+  });
+  drawFrame();
+}
+['side','ideal','over'].forEach(v=>{
+  const b=$('#v'+v[0].toUpperCase()+v.slice(1));
+  if(b) b.addEventListener('click',()=>setView(v));
+});
+setView(viewMode);
+
+
+/* ---------- read the coach's instruction sheet ----------
+   The instruction console turns what the pro said into targets per axis per P
+   point, with its own per-axis limits and an approval step. It reads the JSON
+   this page writes, so the round trip is: measure here → decide there → shape
+   the video back here. Only the axes this page can actually bend are applied;
+   the rest are named out loud rather than dropped quietly. */
+const CAN_BEND=IDEAL_AXES.map(a=>a[0]);
+const AXIS_JP=Object.fromEntries(IDEAL_AXES.map(a=>[a[0],a[1]]));
+const AXIS_ANY={shoulderTurn:'肩の回転',hipTurn:'腰の回転',spineAngle:'前傾角',
+  hipLateral:'腰の左右位置',headHeight:'頭の高さ',handAlong:'手元・前後',
+  handHeight:'手元・高さ',handDistance:'手元・距離',elbowR:'右肘・距離',
+  wristHinge:'手首のコック',wristBow:'手首の掌屈背屈',faceAngle:'フェースの向き',
+  shaftPlane:'シャフトの傾き',kneeFlexL:'左膝',kneeFlexR:'右膝',weightLeft:'左荷重'};
+
+$('#planFile').addEventListener('change', async e=>{
+  const f=e.target.files && e.target.files[0];
+  if(!f) return;
+  e.target.value='';
+  let j;
+  try{ j=JSON.parse(await f.text()); }
+  catch(err){ log('× 指示書を読めませんでした（JSONの形が違います）'); return; }
+  const ps=j.parameters;
+  if(!Array.isArray(ps)){ log('× parameters が入っていません。指示コンソールの書き出しを選んでください'); return; }
+
+  if(j.instruction) log('プロの指示: '+j.instruction);
+  if(j.approvalBlocked) log('△ この指示書はまだ承認されていません。内容を確かめてください');
+
+  ideal={};
+  const applied=[], skippedAxis=[], skippedPoint=[], clamped=[];
+  ps.forEach(p=>{
+    if(!p||!p.axis||p.delta==null) return;
+    const name=AXIS_ANY[p.axis]||p.axis;
+    if(p.point==='global') return;
+    if(!P_KEYS.includes(p.point)){ skippedPoint.push(`${p.point} ${name}`); return; }
+    if(!CAN_BEND.includes(p.axis)){ skippedAxis.push(`${p.point} ${name}`); return; }
+    ideal[p.point]=ideal[p.point]||{};
+    ideal[p.point][p.axis]=p.delta;
+    applied.push(`${p.point} ${name} ${p.delta>0?'+':''}${p.delta}${p.unit||''}`);
+    if(p.clampedToLimit) clamped.push(`${p.point} ${name}`);
+  });
+
+  if(applied.length) log('動画に反映: '+applied.join(' / '));
+  else log('△ 動画に反映できる指示がありませんでした');
+  if(clamped.length) log('※ 上限で頭打ちになった軸: '+clamped.join(' / '));
+  if(skippedPoint.length)
+    log('× P2・P5・P8はクラブを追えないため判定していません。見送り: '+skippedPoint.join(' / '));
+  if(skippedAxis.length)
+    log('× この画面で形を変えられない軸のため見送り: '+skippedAxis.join(' / ')
+       +'（変形できるのは '+IDEAL_AXES.map(a=>a[1]).join('・')+'）');
+
+  if(Array.isArray(j.unresolved) && j.unresolved.length)
+    log('△ 指示コンソールが解釈できなかった指摘: '+j.unresolved.join(' / '));
+
+  buildIdealUI();
+  drawFrame();
+  $('#planNote').textContent = applied.length
+    ? `指示書を読み込みました（${applied.length}件を反映${skippedAxis.length+skippedPoint.length?`・${skippedAxis.length+skippedPoint.length}件は見送り`:''}）。詳しくはログを見てください。`
+    : '反映できる指示がありませんでした。ログを見てください。';
+});
+/* ---------- write the comparison out as a video ----------
+   The point of the whole exercise is something to send the customer, so it has
+   to leave here as a file: their own swing with both skeletons drawn on it. */
+let writing=false;
+$('#idealSave').addEventListener('click',async()=>{
+  if(writing||!frames.length) return;
+  if(!video.videoWidth){ log('× 映像がありません'); return; }
+  const cv=document.createElement('canvas');
+  const os=outSize(); cv.width=os.w; cv.height=os.h;
+  const ctx=cv.getContext('2d');
+  const st=cv.captureStream ? cv.captureStream(30) : null;
+  if(!st){ log('× この環境では書き出せません'); return; }
+  let mime='video/mp4;codecs=avc1.42E01E';
+  if(!MediaRecorder.isTypeSupported(mime)) mime='video/webm;codecs=vp9';
+  if(!MediaRecorder.isTypeSupported(mime)) mime='video/webm';
+  let rec;
+  try{ rec=new MediaRecorder(st,{mimeType:mime,videoBitsPerSecond:8000000}); }
+  catch(e){ log('× 書き出せません: '+e.message); return; }
+  const parts=[];
+  rec.ondataavailable=e=>{ if(e.data&&e.data.size) parts.push(e.data); };
+  const done=new Promise(r=>rec.onstop=r);
+
+  writing=true; stopPlay();
+  $('#idealSave').textContent='書き出し中…';
+  const from=pIdx.P1||0, to=frames.length-1;
+  rec.start();
+  for(let i=from;i<=to;i++){
+    await seek(Math.min(video.duration-1e-3,(frameOffset+i+0.5)/fps));
+    curFrame=i;
+    paintFrame(ctx,cv.width,cv.height);
+    /* hold each frame for a 30 fps slot at quarter speed, so the swing is
+       watchable rather than a blur */
+    await new Promise(r=>setTimeout(r,33));
+    if(i%10===0){
+      $('#idealSave').textContent=`書き出し中… ${Math.round((i-from)/(to-from)*100)}%`;
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  rec.stop(); await done;
+  writing=false; $('#idealSave').textContent='動画で書き出す';
+  const blob=new Blob(parts,{type:mime});
+  const name=`ideal_${($('#cId').value||'SW').replace(/[^\w-]/g,'')}.`+(mime.indexOf('mp4')>=0?'mp4':'webm');
+  const f=new File([blob],name,{type:mime});
+  log(`書き出し完了: ${name} (${(blob.size/1048576).toFixed(1)}MB)`);
+  if(navigator.canShare && navigator.canShare({files:[f]})){
+    navigator.share({files:[f]}).catch(()=>{});
+  }else{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=name;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},5000);
+  }
+});
 /* ---------- results ---------- */
 const AXES=[
   ['shoulderTurn','肩の回転','°'],['hipTurn','腰の回転','°'],['spineAngle','前傾角','°'],
@@ -1180,6 +1622,7 @@ function recompute(){
   drawGraph();
   $('#json').value=JSON.stringify(lastOut,null,2);
   $('#outCard').classList.remove('hide');
+  buildIdealUI();
 }
 ['#cName','#cHeight','#cDate','#cId','#cCoach'].forEach(s=>
   $(s).addEventListener('input',()=>{ if(lastOut) recompute(); }));
@@ -1276,6 +1719,7 @@ async function showLibrary(){
   }
 }
 showLibrary();
+window.__lab={set frames(v){frames=v},get frames(){return frames},set fps(v){fps=v},set sig(v){sig=v},set pIdx(v){pIdx=v},get pIdx(){return pIdx},set axes(v){axes=v},set scale(v){scale=v},set ideal(v){ideal=v},deform,metricsAt,buildIdealUI};
 log('準備完了。動画ファイルを選んでください。');
 </script>
 </body>
