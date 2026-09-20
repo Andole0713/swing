@@ -129,6 +129,18 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 #rStage.split #rVideo2{left:50%;width:50%;opacity:1}
 #rStage.split:after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.25)}
 #rCanvas{position:absolute;inset:0;touch-action:none}
+#rHand{position:absolute;left:50%;bottom:92px;transform:translateX(-50%);z-index:8;display:none;
+  padding:14px 16px;border-radius:14px;background:rgba(10,13,17,.92);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:#fff;
+  box-shadow:0 10px 32px rgba(0,0,0,.6);max-width:86vw;text-align:center}
+#rHand.on{display:block}
+#rHand .t{font-size:14.4px;font-weight:600;margin-bottom:2px}
+#rHand .n{font-size:12.4px;color:#9fb0c0;margin-bottom:10px;word-break:break-all}
+#rHand .b{display:flex;gap:8px;justify-content:center}
+#rHand button{padding:10px 16px;border-radius:10px;font-size:13.6px;
+  background:rgba(61,220,132,.22);color:var(--accent);
+  box-shadow:inset 0 0 0 1px rgba(61,220,132,.5)}
+#rHand button.ghost{background:var(--chip);color:var(--dim);box-shadow:none}
 #rSkelMsg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:7;
   display:none;padding:12px 18px;border-radius:12px;font-size:14.4px;color:#fff;
   background:rgba(10,13,17,.86);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
@@ -305,7 +317,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <h1>SwingFrame</h1>
       <p>スイング撮影・スイング分析</p>
       <!-- 表示用の版数。sw.js の CACHE と必ずそろえること（片方だけ上げると更新に気づけません） -->
-      <div id="hVer">v30</div>
+      <div id="hVer">v31</div>
     </div>
     <button class="hbtn pri" id="hShoot"><i>●</i><span>スイングを撮影<em>ガイドに合わせて自動で録画</em></span></button>
     <button class="hbtn" id="hLib"><i>▤</i><span>ライブラリ<em id="hLibSub">保存した動画と画像</em></span></button>
@@ -425,6 +437,14 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
     <canvas id="rCanvas"></canvas>
     <div id="rEmpty">まだ録画がありません</div>
     <div id="rSkelMsg"></div>
+    <div id="rHand">
+      <div class="t">書き出しました</div>
+      <div class="n" id="rHandName"></div>
+      <div class="b">
+        <button id="rHandGo">カメラロールに保存</button>
+        <button id="rHandNo" class="ghost">閉じる</button>
+      </div>
+    </div>
   </div>
 
   <div id="rTop">
@@ -1556,6 +1576,7 @@ function pick(c){
   }
   lines=[];
   if(skelId!==c.id)skelReset();     /* 別のスイングなら骨格は作り直し */
+  pending=null; $('#rHand').classList.remove('on');
   sizeCanvas();renderList();syncMeta();
 }
 function setCompare(c){
@@ -1711,12 +1732,48 @@ function saveTo(blob,name,kind,meta){
   if(f&&canShare(f)){
     return navigator.share({files:[f]})
       .then(function(){ toast('完了しました'); })
-      .catch(function(){});           /* cancelled — say nothing */
+      .catch(function(err){
+        if(err&&err.name==='AbortError')return;     /* just closed the sheet */
+        try{ dl(blob,name); toast('共有できなかったので端末に保存しました'); }
+        catch(e){ toast('保存できませんでした'); }
+      });
   }
   try{ dl(blob,name); toast('端末にダウンロードしました'); }
   catch(e){ toast('保存できませんでした'); }
   return Promise.resolve();
 }
+/* Handing a file to the camera roll goes through the share sheet, and iPhones
+   only open that sheet while a tap is still "live". Burning the drawing into a
+   video takes seconds, so by the time the file exists the tap is long gone and
+   the sheet silently refuses to open. Hold the finished file and let the person
+   tap once more — that tap is what opens it. */
+var pending=null;
+function offerSave(blob,name){
+  pending={blob:blob,name:name};
+  $('#rHandName').textContent=name.replace(/^swing_/,'').replace(/\.(mp4|webm)$/,'')
+    +'（'+(blob.size/1048576).toFixed(1)+'MB）';
+  $('#rHand').classList.add('on');
+}
+$('#rHandGo').onclick=function(){
+  if(!pending)return;
+  var f=null;
+  try{ f=new File([pending.blob],pending.name,{type:pending.blob.type}); }catch(e){}
+  if(f&&canShare(f)){
+    navigator.share({files:[f]})
+      .then(function(){ $('#rHand').classList.remove('on'); pending=null; })
+      .catch(function(err){
+        if(err&&err.name==='AbortError')return;       /* just closed the sheet */
+        dl(pending.blob,pending.name);
+        toast('共有できなかったので端末に保存しました');
+        $('#rHand').classList.remove('on'); pending=null;
+      });
+    return;
+  }
+  dl(pending.blob,pending.name);
+  toast('端末にダウンロードしました');
+  $('#rHand').classList.remove('on'); pending=null;
+};
+$('#rHandNo').onclick=function(){ pending=null; $('#rHand').classList.remove('on'); };
 /* still frame with the drawings burned in */
 $('#rImg').onclick=function(){
   closePops();
@@ -1796,7 +1853,11 @@ $('#rSave').onclick=function(){
     rv.pause();
     var t=rec.mimeType||'video/webm';
     var b=new Blob(parts,{type:t});
-    saveTo(b,'swing_'+cur.id+'_cut.'+(t.indexOf('mp4')>=0?'mp4':'webm'),'video',{guide:cur.guide,note:cur.note});
+    var nm='swing_'+cur.id+'_cut.'+(t.indexOf('mp4')>=0?'mp4':'webm');
+    /* the app's own library can take it straight away; anything that needs the
+       share sheet has to wait for a fresh tap */
+    if(dest==='app') saveTo(b,nm,'video',{guide:cur.guide,note:cur.note});
+    else offerSave(b,nm);
   };
   function frame(){
     try{x.drawImage(rv,0,0,W,H);paintSkeleton(x,W,H,k);paintShapes(x,W,H,k)}catch(e){}
@@ -1906,18 +1967,20 @@ function skelReset(){
   skelMsg('');
   $('#rSkel').classList.remove('on');
 }
-/* Wait for the frame to actually be on screen, not merely for the seek to be
-   acknowledged. Safari fires "seeked" before the picture is ready, and reading
-   the video then gives the previous frame — the skeleton ends up filed against
-   the wrong moment. requestVideoFrameCallback fires only once a frame has been
-   presented, so use it where it exists. */
+/* Wait for the frame to be on screen, not merely for the seek to be
+   acknowledged: Safari fires "seeked" before the picture is ready, and reading
+   the video then gives the frame before. But a paused video may never present
+   a new frame at all, so requestVideoFrameCallback cannot be waited on alone —
+   doing that made every frame sit out its timeout and turned a ten second pass
+   into two minutes. Take whichever arrives first. */
 function seekTo(t){
   return new Promise(function(res){
     var done=false;
     var fin=function(){ if(done)return; done=true; rv.removeEventListener('seeked',onSeek); res(); };
     var onSeek=function(){
-      if('requestVideoFrameCallback' in rv){ rv.requestVideoFrameCallback(function(){ fin() }); }
-      else { setTimeout(fin,0); }
+      if('requestVideoFrameCallback' in rv) rv.requestVideoFrameCallback(fin);
+      requestAnimationFrame(function(){ requestAnimationFrame(fin) });
+      setTimeout(fin,80);
     };
     rv.addEventListener('seeked',onSeek);
     rv.currentTime=t;
