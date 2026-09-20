@@ -305,7 +305,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <h1>SwingFrame</h1>
       <p>スイング撮影・スイング分析</p>
       <!-- 表示用の版数。sw.js の CACHE と必ずそろえること（片方だけ上げると更新に気づけません） -->
-      <div id="hVer">v29</div>
+      <div id="hVer">v30</div>
     </div>
     <button class="hbtn pri" id="hShoot"><i>●</i><span>スイングを撮影<em>ガイドに合わせて自動で録画</em></span></button>
     <button class="hbtn" id="hLib"><i>▤</i><span>ライブラリ<em id="hLibSub">保存した動画と画像</em></span></button>
@@ -1764,7 +1764,9 @@ $('#rSave').onclick=function(){
   var t0=sw?Math.max(0,sw-PRE):0;
   var t1=sw?Math.min(dur||1e9,sw+(S.post||5)):(dur||0);
   var needTrim=sw&&(t0>0.3||(dur&&t1<dur-0.3));
-  if(!lines.length&&!needTrim){
+  /* the skeleton is drawn, not part of the file, so it has to be re-encoded in
+     just like the lines do — without this it silently vanishes on save */
+  if(!lines.length&&!needTrim&&!skelOn){
     saveTo(cur.blob,'swing_'+cur.id+'.'+ext,'video',{guide:cur.guide,note:cur.note,original:true});
     return;
   }
@@ -1904,13 +1906,22 @@ function skelReset(){
   skelMsg('');
   $('#rSkel').classList.remove('on');
 }
+/* Wait for the frame to actually be on screen, not merely for the seek to be
+   acknowledged. Safari fires "seeked" before the picture is ready, and reading
+   the video then gives the previous frame — the skeleton ends up filed against
+   the wrong moment. requestVideoFrameCallback fires only once a frame has been
+   presented, so use it where it exists. */
 function seekTo(t){
   return new Promise(function(res){
     var done=false;
-    var h=function(){ if(done)return; done=true; rv.removeEventListener('seeked',h); res(); };
-    rv.addEventListener('seeked',h);
+    var fin=function(){ if(done)return; done=true; rv.removeEventListener('seeked',onSeek); res(); };
+    var onSeek=function(){
+      if('requestVideoFrameCallback' in rv){ rv.requestVideoFrameCallback(function(){ fin() }); }
+      else { setTimeout(fin,0); }
+    };
+    rv.addEventListener('seeked',onSeek);
     rv.currentTime=t;
-    setTimeout(h,400);
+    setTimeout(fin,500);
   });
 }
 async function buildSkeleton(){
@@ -1950,11 +1961,38 @@ async function buildSkeleton(){
     toast('骨格をうまく読み取れませんでした。全身が入るように撮ってください');
     return;
   }
-  skel=arr;skelId=cur.id;skelOn=true;
+  skel=smoothSkel(arr,2);skelId=cur.id;skelOn=true;
   $('#rSkel').classList.add('on');
   await seekTo(Math.min(dur-1e-3,t0));
   redraw();
   skelLoop();
+}
+/* Seen from behind, the far arm is hidden by the body, so the model is guessing
+   where it is and its guess jumps about from frame to frame — which looks like
+   the golfer is waving an arm while standing perfectly still. Two answers:
+   settle each joint over its neighbouring frames, and simply stop drawing a
+   joint the model cannot actually see. */
+var SKEL_SEE=0.5;                       /* below this the model is guessing */
+function smoothSkel(arr,half){
+  var out=new Array(arr.length).fill(null);
+  for(var i=0;i<arr.length;i++){
+    if(!arr[i])continue;
+    var p=new Array(33);
+    for(var k=0;k<33;k++){
+      var xs=[],ys=[],vs=[];
+      for(var j=i-half;j<=i+half;j++){
+        var f=arr[j];
+        if(j<0||j>=arr.length||!f||!f[k])continue;
+        xs.push(f[k].x);ys.push(f[k].y);vs.push(f[k].v);
+      }
+      if(!xs.length){p[k]=arr[i][k];continue}
+      /* median, not average: one wild frame should not drag the joint with it */
+      var mid=function(a){a.sort(function(x,y){return x-y});return a[Math.floor(a.length/2)]};
+      p[k]={x:mid(xs),y:mid(ys),v:mid(vs)};
+    }
+    out[i]=p;
+  }
+  return out;
 }
 function skelAt(){
   if(!skel) return null;
@@ -1968,20 +2006,24 @@ function paintSkeleton(ctx,w,h,k){
   if(!skelOn) return;
   var p=skelAt();
   if(!p) return;
+  var seen=function(i){ return p[i] && (p[i].v==null || p[i].v>=SKEL_SEE) };
   ctx.save();
   ctx.lineCap='round';
   ctx.shadowColor='rgba(0,0,0,.85)';ctx.shadowBlur=4*k;
   ctx.strokeStyle='rgba(61,220,132,.95)';ctx.lineWidth=3.2*k;
   SKBONES.forEach(function(b){
-    var a=p[b[0]],c=p[b[1]];
-    if(!a||!c)return;
-    ctx.beginPath();ctx.moveTo(a.x*w,a.y*h);ctx.lineTo(c.x*w,c.y*h);ctx.stroke();
+    /* a bone the model is guessing at is left out rather than drawn wrong */
+    if(!seen(b[0])||!seen(b[1]))return;
+    ctx.beginPath();
+    ctx.moveTo(p[b[0]].x*w,p[b[0]].y*h);
+    ctx.lineTo(p[b[1]].x*w,p[b[1]].y*h);
+    ctx.stroke();
   });
   ctx.fillStyle='#fff';
-  p.forEach(function(q,i){
-    if(i>32)return;
-    ctx.beginPath();ctx.arc(q.x*w,q.y*h,2.6*k,0,Math.PI*2);ctx.fill();
-  });
+  for(var i=0;i<=32;i++){
+    if(!seen(i))continue;
+    ctx.beginPath();ctx.arc(p[i].x*w,p[i].y*h,2.6*k,0,Math.PI*2);ctx.fill();
+  }
   ctx.restore();
 }
 function skelLoop(){
@@ -2239,7 +2281,7 @@ window.__pose={
       if(!(sh<hp-0.02 && hp<kn-0.02 && kn<an-0.02)) return null;
       const span=Math.hypot(w[11].x-w[12].x, w[11].y-w[12].y, w[11].z-w[12].z);
       if(span<0.15||span>0.70) return null;
-      return r.landmarks[0].map(p=>({x:p.x,y:p.y}));
+      return r.landmarks[0].map(p=>({x:p.x,y:p.y,v:p.visibility!=null?p.visibility:1}));
     }catch(e){ return null; }
   }
 };
