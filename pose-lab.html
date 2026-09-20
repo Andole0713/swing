@@ -13,6 +13,8 @@
 body{margin:0;background:#0a0c0f;color:var(--fg);
   font:400 15px/1.6 -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif}
 h1{font-size:19px;margin:0 0 2px}
+#labVer{font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);
+  padding:4px 9px;border-radius:99px;background:var(--chip);white-space:nowrap}
 h2{font-size:14px;margin:0 0 10px;color:var(--dim);font-weight:600;letter-spacing:.06em}
 .wrap{max-width:1180px;margin:0 auto;padding:18px 16px 60px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
@@ -62,20 +64,32 @@ textarea{width:100%;height:210px;background:#0b0f13;color:var(--fg);border:1px s
 .planbar{background:#0b0f13;border:1px solid var(--line);border-radius:10px;
   padding:11px 12px;margin-bottom:14px;display:flex;flex-direction:column;gap:7px}
 .planbar b{font-size:13.5px;white-space:nowrap}
-.irow{display:grid;grid-template-columns:86px 92px 1fr 128px;gap:10px;align-items:center;
-  padding:7px 0;border-bottom:1px solid var(--line)}
-.irow:last-child{border-bottom:0}
-.ilab{font-size:13.5px}
-.irow.on{background:linear-gradient(90deg,rgba(61,220,132,.10),transparent 60%);
-  box-shadow:inset 3px 0 0 var(--accent)}
-.irow.on .ilab{font-weight:600}
-.why{font-style:normal;display:block;font-size:11px;color:var(--accent);margin-top:1px}
+/* axis rows, laid out the way the instruction console lays them out, so a coach
+   moving between the two tools reads the same thing in the same places */
+.agroup{padding:11px 2px 3px;font-size:10.5px;letter-spacing:.11em;color:var(--dim)}
+.arow{padding:7px 10px 8px;border-radius:8px;border-bottom:1px solid var(--line)}
+.arow:last-child{border-bottom:0}
+.arow.changed{background:rgba(61,220,132,.09);box-shadow:inset 3px 0 0 var(--accent)}
+.arow-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.aname{font-size:13.2px;font-weight:500;flex:1;min-width:140px}
+.aname i{font-style:normal;font-size:11px;color:var(--dim);margin-left:6px}
+.vals{display:flex;align-items:baseline;gap:7px;white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+.v-cur{font-size:13px;color:var(--dim)}
+.arrow{color:var(--dim);font-size:12px}
+.v-tgt{font-size:16px;font-weight:600;min-width:64px;text-align:right;color:var(--fg)}
+.v-tgt.same{color:var(--dim);font-weight:400}
+.delta{font-size:11.5px;font-weight:600;min-width:58px;text-align:right;
+  font-variant-numeric:tabular-nums}
+.delta.up{color:var(--accent)} .delta.down{color:#7fb0ff} .delta.none{color:var(--dim);font-weight:400}
+.arow-ctl{display:flex;align-items:center;gap:12px;margin-top:4px}
+.arow-ctl input[type=range]{flex:1;min-width:0;padding:0;accent-color:var(--accent)}
+.limit{font-size:10.5px;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
+.reason{font-size:11.5px;color:var(--accent);margin-top:3px}
+.reason.sys{color:var(--dim)}
+.reason.warn{color:var(--warn)}
+.reason.bad{color:var(--bad)}
 .dot{font-style:normal;font-size:9px;color:var(--accent);vertical-align:2px}
-.inow{font-size:12.5px;color:var(--dim);font-variant-numeric:tabular-nums}
-.itgt{font-size:12.5px;color:var(--dim);font-variant-numeric:tabular-nums;text-align:right}
-.irow input[type=range]{width:100%;padding:0}
-@media(max-width:620px){.irow{grid-template-columns:1fr 1fr;grid-auto-rows:auto}
-  .irow input[type=range]{grid-column:1/-1}.itgt{text-align:left}}
 .hide{display:none}
 </style>
 </head>
@@ -83,7 +97,11 @@ textarea{width:100%;height:210px;background:#0b0f13;color:var(--fg);border:1px s
 <div class="wrap">
 
   <div class="card">
-    <h1>骨格解析ラボ</h1>
+    <div class="row" style="justify-content:space-between;align-items:baseline">
+      <h1>骨格解析ラボ</h1>
+      <!-- 差し替えたものが届いているか確かめるための版数。変更したら必ず上げる -->
+      <span id="labVer">lab 2</span>
+    </div>
     <div class="muted">録画済みのスイング動画から姿勢を推定し、P点を判定して解析JSONを書き出します。<br>
       後方（飛球線後方）から撮影した右打ちの動画を想定しています。</div>
   </div>
@@ -1018,21 +1036,26 @@ function turnConfidence(i){
    build, their arm length, their stance — only the numbers the coach wants
    changed actually change, so what comes out still looks like them.
 
-   A target is set at one P point, but a swing is continuous, so the correction
-   is spread smoothly across the whole motion instead of snapping on at that one
-   frame. */
+/* Same shape as the instruction console's axis list, so the two tools speak
+   about a change in identical terms: id, label, unit, decimals, how much is
+   reasonable to change in one session, which part of the body, and the sign
+   convention. Only the axes this page can actually bend appear here. */
 const IDEAL_AXES=[
-  ['shoulderTurn','肩の回転','°',-20,20],
-  ['hipTurn','腰の回転','°',-20,20],
-  ['spineAngle','前傾角','°',-15,15],
-  ['headHeight','頭の高さ','cm',-15,15],
-  ['handAlong','手元・前後','cm',-10,10],
-  ['handHeight','手元・高さ','cm',-20,20],
-  ['handDistance','手元・距離','cm',-10,10],
-  ['elbowR','右肘・距離','cm',-12,12],
-  ['kneeFlexL','左膝の曲がり','°',-15,15],
-  ['kneeFlexR','右膝の曲がり','°',-15,15]
+  ['shoulderTurn','肩の回転',           '°', 0, 12, '体幹',    '＋バック / −開き'],
+  ['hipTurn',     '腰の回転',           '°', 0,  8, '体幹',    '＋バック / −開き'],
+  ['spineAngle',  '前傾角',             '°', 0,  4, '体幹',    ''],
+  ['headHeight',  '頭の高さ',           'cm',1,  3, '体幹',    'アドレス比'],
+  ['handAlong',   '手元・前後',         'cm',1,  4, '腕・手元','＋目標方向'],
+  ['handHeight',  '手元・高さ',         'cm',1, 10, '腕・手元','アドレス比'],
+  ['handDistance','手元・体からの距離', 'cm',1,  4, '腕・手元',''],
+  ['elbowR',      '右肘・体からの距離', 'cm',1,  5, '腕・手元',''],
+  ['kneeFlexL',   '左膝の曲がり',       '°', 0,  6, '下半身',  ''],
+  ['kneeFlexR',   '右膝の曲がり',       '°', 0,  6, '下半身',  '']
 ];
+const AX_OF=Object.fromEntries(IDEAL_AXES.map(a=>[a[0],
+  {id:a[0],label:a[1],unit:a[2],dec:a[3],limit:a[4],grp:a[5],note:a[6]}]));
+const axFmt=(a,v)=>v==null?'—':v.toFixed(a.dec);
+const axStep=a=>a.dec?0.5:1;
 const UPPER=[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22];
 const HEAD=[0,1,2,3,4,5,6,7,8,9,10];
 const HIPS=[23,24], KNEES=[25,26];
@@ -1544,7 +1567,6 @@ $('#graph').addEventListener('click',e=>{
 });
 window.addEventListener('resize',()=>{ if(sig) drawGraph(); });
 
-/* ---------- ideal-swing controls ---------- */
 /* What the body actually reaches. A target can be physically out of range — an
    arm is only so long, and swivelling the elbow traces a circle whose closest
    approach to the body is fixed — so measure the result instead of repeating
@@ -1554,7 +1576,7 @@ function achieved(pKey){
   if(!f) return null;
   const w=deform(i);
   if(!w) return metricsAt(i);
-  frames[i]={w, n:f.n};
+  frames[i]={w, n:f.n, ns:f.ns, ws:f.ws};
   const m=metricsAt(i);
   frames[i]=f;
   return m;
@@ -1565,52 +1587,79 @@ function buildIdealUI(){
   P_KEYS.forEach(k=>{
     const b=document.createElement('button');
     b.className='sm'+(k===idealP?' pri':'');
-    /* a dot on the tab so a change made somewhere else is not missed */
     const n=Object.keys(ideal[k]||{}).length;
-    b.innerHTML=k+(n?` <i class="dot">●</i>`:'');
+    b.innerHTML=k+(n?' <i class="dot">●</i>':'');
     b.onclick=()=>{ idealP=k; gotoFrame(pIdx[k]); buildIdealUI(); };
     tabs.appendChild(b);
   });
   const box=$('#idealRows'); box.innerHTML='';
   const now=metricsAt(pIdx[idealP])||{};
   const rows=[];
-  IDEAL_AXES.forEach(([key,label,unit,lo,hi])=>{
-    const cur=now[key], d=(ideal[idealP]&&ideal[idealP][key])||0;
+  let grp='';
+  IDEAL_AXES.forEach(spec=>{
+    const a=AX_OF[spec[0]];
+    if(a.grp!==grp){
+      grp=a.grp;
+      const h=document.createElement('div');
+      h.className='agroup'; h.textContent=grp;
+      box.appendChild(h);
+    }
+    const cur=now[a.id];
+    const d=(ideal[idealP]&&ideal[idealP][a.id])||0;
+    const base=cur!=null?cur:0;
+    const lo=base-a.limit*3, hi=base+a.limit*3;
     const row=document.createElement('div');
-    row.className='irow';
-    row.innerHTML=`<span class="ilab">${label}<i class="why"></i></span>
-      <span class="inow">今 ${cur!=null?cur:'—'}${unit}</span>
-      <input type="range" min="${lo}" max="${hi}" step="0.5" value="${d}" data-k="${key}">
-      <span class="itgt"></span>`;
-    const tgt=row.querySelector('.itgt'), sl=row.querySelector('input'),
-          why=row.querySelector('.why');
+    row.className='arow';
+    row.innerHTML=
+      `<div class="arow-top">
+         <span class="aname">${a.label}${a.note?`<i>${a.note}</i>`:''}</span>
+         <span class="vals">
+           <span class="v-cur">${axFmt(a,cur)}${a.unit}</span>
+           <span class="arrow">→</span>
+           <span class="v-tgt"></span>
+         </span>
+         <span class="delta"></span>
+       </div>
+       <div class="arow-ctl">
+         <input type="range" min="${lo}" max="${hi}" step="${axStep(a)}" value="${base+d}">
+         <span class="limit">±${axFmt(a,a.limit)}${a.unit}</span>
+       </div>
+       <div class="reason"></div>`;
+    const sl=row.querySelector('input'),
+          tgt=row.querySelector('.v-tgt'),
+          del=row.querySelector('.delta'),
+          rsn=row.querySelector('.reason');
     sl.addEventListener('input',e=>{
-      const v=+e.target.value;
+      const v=Math.round((+e.target.value-base)*2)/2;
       ideal[idealP]=ideal[idealP]||{};
       idealWhy[idealP]=idealWhy[idealP]||{};
-      if(v){ ideal[idealP][key]=v; idealWhy[idealP][key]='手で調整'; }
-      else { delete ideal[idealP][key]; delete idealWhy[idealP][key]; }
+      if(v){ ideal[idealP][a.id]=v; idealWhy[idealP][a.id]='手で調整'; }
+      else { delete ideal[idealP][a.id]; delete idealWhy[idealP][a.id]; }
       refresh(); drawFrame();
-      buildIdealUI._tabs && buildIdealUI._tabs();
     });
-    rows.push({key,unit,cur,tgt,sl,why,row});
+    rows.push({a,base,cur,sl,tgt,del,rsn,row});
     box.appendChild(row);
   });
   function refresh(){
     const got=achieved(idealP)||{};
     rows.forEach(r=>{
-      const v=+r.sl.value;
-      const w=(idealWhy[idealP]||{})[r.key]||'';
-      r.row.classList.toggle('on',!!v);
-      r.why.textContent = v&&w ? w : '';
-      if(!v){ r.tgt.textContent='変更なし'; r.tgt.style.color='var(--dim)'; return; }
-      const want=r1((r.cur||0)+v), real=got[r.key];
-      /* say so when the body cannot get there, rather than showing the wish */
-      const short = real!=null && Math.abs(real-want) > Math.max(0.6, Math.abs(v)*0.12);
-      r.tgt.textContent = short
-        ? `→ ${real}${r.unit}（${want}は届かず）`
-        : `→ ${want}${r.unit} (${v>0?'+':''}${v})`;
-      r.tgt.style.color = short ? 'var(--warn)' : 'var(--accent)';
+      const a=r.a, v=Math.round((+r.sl.value-r.base)*2)/2;
+      const want=r.base+v, real=got[a.id];
+      r.row.classList.toggle('changed',!!v);
+      r.tgt.textContent=axFmt(a,want)+a.unit;
+      r.tgt.classList.toggle('same',!v);
+      r.del.textContent = v ? (v>0?'+':'')+axFmt(a,v)+a.unit : '変更なし';
+      r.del.className='delta '+(v>0?'up':v<0?'down':'none');
+      /* three things worth saying, in order of how much they matter */
+      const over = v && Math.abs(v)>a.limit;
+      const short = v && real!=null && Math.abs(real-want) > Math.max(0.6,Math.abs(v)*0.12);
+      const why = (idealWhy[idealP]||{})[a.id]||'';
+      let txt='', cls='reason';
+      if(short){ txt=`体が届きません。実際は ${axFmt(a,real)}${a.unit}`; cls='reason bad'; }
+      else if(over){ txt=`一度の変更としては大きめです（目安 ±${axFmt(a,a.limit)}${a.unit}）`; cls='reason warn'; }
+      else if(why){ txt=(why==='手で調整'||why==='指示書')?why:'根拠：'+why; cls='reason'+(why==='手で調整'?' sys':''); }
+      r.rsn.textContent=txt; r.rsn.className=cls;
+      r.rsn.style.display=txt?'':'none';
     });
   }
   refresh();
@@ -1696,9 +1745,11 @@ const SAY_CHIPS=['トップを深く','肩をしっかり回す','前傾を維�
 
 let idealWhy={};      /* {P4:{shoulderTurn:'トップを深く'}} — どの指示で動いたか */
 
+/* an instruction is held to the per-session limit the console uses; the slider
+   still lets a coach go further by hand, and says so when they do */
 function clampAxis(key,v){
-  const a=IDEAL_AXES.find(x=>x[0]===key);
-  return a ? Math.max(a[3],Math.min(a[4],v)) : v;
+  const a=AX_OF[key];
+  return a ? Math.max(-a.limit, Math.min(a.limit, v)) : v;
 }
 function applySaying(text){
   const clauses=text.split(/[。\n]+/).map(s=>s.trim()).filter(Boolean);
