@@ -317,7 +317,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <h1>SwingFrame</h1>
       <p>スイング撮影・スイング分析</p>
       <!-- 表示用の版数。sw.js の CACHE と必ずそろえること（片方だけ上げると更新に気づけません） -->
-      <div id="hVer">v32</div>
+      <div id="hVer">v33</div>
     </div>
     <button class="hbtn pri" id="hShoot"><i>●</i><span>スイングを撮影<em>ガイドに合わせて自動で録画</em></span></button>
     <button class="hbtn" id="hLib"><i>▤</i><span>ライブラリ<em id="hLibSub">保存した動画と画像</em></span></button>
@@ -2079,7 +2079,12 @@ function smoothSkel(arr,half){
       }
       if(!xs.length){p[k]=arr[i][k];continue}
       /* median, not average: one wild frame should not drag the joint with it */
-      var mid=function(a){a.sort(function(x,y){return x-y});return a[Math.floor(a.length/2)]};
+      /* trimmed mean: drop the highest and lowest, average the rest. A plain
+         median shrugs off one wild frame but barely touches noise that swings
+         the other way every frame, which is what a hidden joint does. */
+      var mid=function(a){a.sort(function(x,y){return x-y});
+        var b=a.length>=3?a.slice(1,-1):a;
+        return b.reduce(function(s,x){return s+x},0)/b.length;};
       p[k]={x:mid(xs),y:mid(ys),v:mid(vs)};
     }
     out[i]=p;

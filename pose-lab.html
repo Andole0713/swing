@@ -66,6 +66,11 @@ textarea{width:100%;height:210px;background:#0b0f13;color:var(--fg);border:1px s
   padding:7px 0;border-bottom:1px solid var(--line)}
 .irow:last-child{border-bottom:0}
 .ilab{font-size:13.5px}
+.irow.on{background:linear-gradient(90deg,rgba(61,220,132,.10),transparent 60%);
+  box-shadow:inset 3px 0 0 var(--accent)}
+.irow.on .ilab{font-weight:600}
+.why{font-style:normal;display:block;font-size:11px;color:var(--accent);margin-top:1px}
+.dot{font-style:normal;font-size:9px;color:var(--accent);vertical-align:2px}
 .inow{font-size:12.5px;color:var(--dim);font-variant-numeric:tabular-nums}
 .itgt{font-size:12.5px;color:var(--dim);font-variant-numeric:tabular-nums;text-align:right}
 .irow input[type=range]{width:100%;padding:0}
@@ -167,6 +172,17 @@ textarea{width:100%;height:210px;background:#0b0f13;color:var(--fg);border:1px s
     <div class="muted" style="margin-bottom:9px">
       お客様ご本人の骨格を変形させます。P点を選んでスライダーを動かすと、
       その時点の目標が決まり、スイング全体になめらかに配分されます。
+    </div>
+    <div class="planbar">
+      <div class="row"><b>プロの指示を数値にする</b></div>
+      <textarea id="say" rows="2" style="height:auto;min-height:62px"
+        placeholder="例）トップが浅いのでもっと深く。インパクトで手元を体に近く。"></textarea>
+      <div class="row" id="sayChips"></div>
+      <div class="row">
+        <button class="pri sm" id="sayGo">数値にする</button>
+        <button class="sm" id="sayClear">指示も数値も消す</button>
+        <span class="muted" id="sayNote" style="flex:1;min-width:120px"></span>
+      </div>
     </div>
     <div class="planbar">
       <div class="row">
@@ -350,14 +366,74 @@ async function loadModel(kind){
 }
 
 /* ---------- seek helper ---------- */
+/* Wait for the frame to be on screen, not merely for the seek to be
+   acknowledged: Safari fires "seeked" before the picture is ready, and reading
+   the video then gives the frame before — which files the skeleton against the
+   wrong moment and shifts every measurement with it. A paused video may never
+   present a new frame, so requestVideoFrameCallback cannot be waited on alone;
+   take whichever signal arrives first. */
 function seek(t){
   return new Promise(res=>{
     let done=false;
-    const h=()=>{ if(done)return; done=true; video.removeEventListener('seeked',h); res(); };
-    video.addEventListener('seeked',h);
+    const fin=()=>{ if(done)return; done=true; video.removeEventListener('seeked',onSeek); res(); };
+    const onSeek=()=>{
+      if('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(fin);
+      requestAnimationFrame(()=>requestAnimationFrame(fin));
+      setTimeout(fin,80);
+    };
+    video.addEventListener('seeked',onSeek);
     video.currentTime=t;
-    setTimeout(h,400);
+    setTimeout(fin,500);
   });
+}
+/* Seen from behind, the far arm is hidden by the body, so the model guesses
+   where it is and the guess jumps from frame to frame — the golfer appears to
+   wave an arm while standing still. Settle the drawn points over neighbouring
+   frames. The measurements are left on the raw readings, so the numbers do not
+   quietly shift under a change made for the picture. */
+const DRAW_SEE=0.5;
+function smoothDrawPoints(){
+  const n=frames.length;
+  for(let i=0;i<n;i++){
+    const f=frames[i];
+    if(!f) continue;
+    const out=new Array(f.n.length);
+    for(let k=0;k<f.n.length;k++){
+      const xs=[],ys=[],vs=[];
+      for(let j=i-2;j<=i+2;j++){
+        const g=frames[j];
+        if(j<0||j>=n||!g||!g.n[k]) continue;
+        xs.push(g.n[k].x); ys.push(g.n[k].y); vs.push(g.n[k].vis!=null?g.n[k].vis:1);
+      }
+      if(!xs.length){ out[k]=f.n[k]; continue; }
+      /* median, not average: one wild frame should not drag the joint with it */
+      /* trimmed mean: drop the highest and lowest, average the rest. A plain
+         median shrugs off one wild frame but barely touches noise that swings
+         the other way every frame, which is what a hidden joint does. */
+      const mid=a=>{ a.sort((x,y)=>x-y);
+        const b=a.length>=3?a.slice(1,-1):a;
+        return b.reduce((s,x)=>s+x,0)/b.length; };
+      out[k]={x:mid(xs), y:mid(ys), vis:mid(vs)};
+    }
+    f.ns=out;
+    /* the same settling for the 3-D readings the target figure is bent from,
+       so green and yellow are equally steady. Measurements keep the raw values. */
+    const wo=new Array(f.w.length);
+    for(let k=0;k<f.w.length;k++){
+      const xs=[],ys=[],zs=[];
+      for(let j=i-2;j<=i+2;j++){
+        const g=frames[j];
+        if(j<0||j>=n||!g||!g.w[k]) continue;
+        xs.push(g.w[k].x); ys.push(g.w[k].y); zs.push(g.w[k].z);
+      }
+      if(!xs.length){ wo[k]=f.w[k]; continue; }
+      const md=a=>{ a.sort((x,y)=>x-y);
+        const b=a.length>=3?a.slice(1,-1):a;
+        return b.reduce((s,x)=>s+x,0)/b.length; };
+      wo[k]={x:md(xs),y:md(ys),z:md(zs)};
+    }
+    f.ws=wo;
+  }
 }
 
 /* ---------- analysis ----------
@@ -481,6 +557,7 @@ async function analyseSwing(centre){
   try{
     const got=await densePass(centre,videoFrames);
     if(got<10){ log('× 人物をほとんど検出できませんでした。画角や明るさを確認してください'); return; }
+    smoothDrawPoints();
     detectP();
     buildPUI();
     $('#viewCard').classList.remove('hide');
@@ -1023,7 +1100,8 @@ function deform(i){
   if(!f||!axes) return null;
   const d=idealAt(i);
   if(IDEAL_AXES.every(a=>!d[a[0]])) return null;
-  const w=f.w.map(p=>({x:p.x,y:p.y,z:p.z}));
+  const src=f.ws||f.w;
+  const w=src.map(p=>({x:p.x,y:p.y,z:p.z}));
   const hipMid=mid(w[LHIP],w[RHIP]);
   const rad=x=>x*Math.PI/180;
 
@@ -1163,14 +1241,18 @@ async function gotoFrame(i){
   });
 }
 function skeleton(ctx,pts,W,H,col,dotCol,lw){
+  /* a joint the model cannot actually see is guesswork; leave it out rather
+     than draw a limb in the wrong place */
+  const seen=i=>pts[i] && (pts[i].vis==null || pts[i].vis>=DRAW_SEE);
   ctx.lineWidth=lw; ctx.strokeStyle=col; ctx.lineCap='round';
   ctx.shadowColor='rgba(0,0,0,.8)'; ctx.shadowBlur=4;
   BONES.forEach(([a,b])=>{
+    if(!seen(a)||!seen(b))return;
     ctx.beginPath(); ctx.moveTo(pts[a].x*W,pts[a].y*H); ctx.lineTo(pts[b].x*W,pts[b].y*H); ctx.stroke();
   });
   if(dotCol){
     ctx.fillStyle=dotCol;
-    pts.forEach((p,k)=>{ if(k>32)return; ctx.beginPath();
+    pts.forEach((p,k)=>{ if(k>32||!seen(k))return; ctx.beginPath();
       ctx.arc(p.x*W,p.y*H,Math.max(2.5,W/230),0,Math.PI*2); ctx.fill(); });
   }
   ctx.shadowBlur=0;
@@ -1193,9 +1275,9 @@ function panel(ctx,x,W,H,which,lw){
     const g=idealScreen(curFrame);
     if(g) skeleton(ctx,g,W,H,'rgba(255,210,61,.95)',which==='ideal'?'#fff':null,lw*1.15);
   }
-  if(which!=='ideal') skeleton(ctx,f.n,W,H,'#3ddc84','#fff',lw);
+  if(which!=='ideal') skeleton(ctx,f.ns||f.n,W,H,'#3ddc84','#fff',lw);
   if(which!=='ideal'){
-    const n=f.n;
+    const n=f.ns||f.n;
     ctx.strokeStyle='#ffd23d'; ctx.lineWidth=lw; ctx.beginPath();
     ctx.arc((n[LWR].x+n[RWR].x)/2*W,(n[LWR].y+n[RWR].y)/2*H,Math.max(6,W/70),0,Math.PI*2);
     ctx.stroke();
@@ -1412,7 +1494,9 @@ function buildIdealUI(){
   P_KEYS.forEach(k=>{
     const b=document.createElement('button');
     b.className='sm'+(k===idealP?' pri':'');
-    b.textContent=k;
+    /* a dot on the tab so a change made somewhere else is not missed */
+    const n=Object.keys(ideal[k]||{}).length;
+    b.innerHTML=k+(n?` <i class="dot">●</i>`:'');
     b.onclick=()=>{ idealP=k; gotoFrame(pIdx[k]); buildIdealUI(); };
     tabs.appendChild(b);
   });
@@ -1423,24 +1507,31 @@ function buildIdealUI(){
     const cur=now[key], d=(ideal[idealP]&&ideal[idealP][key])||0;
     const row=document.createElement('div');
     row.className='irow';
-    row.innerHTML=`<span class="ilab">${label}</span>
+    row.innerHTML=`<span class="ilab">${label}<i class="why"></i></span>
       <span class="inow">今 ${cur!=null?cur:'—'}${unit}</span>
       <input type="range" min="${lo}" max="${hi}" step="0.5" value="${d}" data-k="${key}">
       <span class="itgt"></span>`;
-    const tgt=row.querySelector('.itgt'), sl=row.querySelector('input');
+    const tgt=row.querySelector('.itgt'), sl=row.querySelector('input'),
+          why=row.querySelector('.why');
     sl.addEventListener('input',e=>{
       const v=+e.target.value;
       ideal[idealP]=ideal[idealP]||{};
-      if(v) ideal[idealP][key]=v; else delete ideal[idealP][key];
+      idealWhy[idealP]=idealWhy[idealP]||{};
+      if(v){ ideal[idealP][key]=v; idealWhy[idealP][key]='手で調整'; }
+      else { delete ideal[idealP][key]; delete idealWhy[idealP][key]; }
       refresh(); drawFrame();
+      buildIdealUI._tabs && buildIdealUI._tabs();
     });
-    rows.push({key,unit,cur,tgt,sl});
+    rows.push({key,unit,cur,tgt,sl,why,row});
     box.appendChild(row);
   });
   function refresh(){
     const got=achieved(idealP)||{};
     rows.forEach(r=>{
       const v=+r.sl.value;
+      const w=(idealWhy[idealP]||{})[r.key]||'';
+      r.row.classList.toggle('on',!!v);
+      r.why.textContent = v&&w ? w : '';
       if(!v){ r.tgt.textContent='変更なし'; r.tgt.style.color='var(--dim)'; return; }
       const want=r1((r.cur||0)+v), real=got[r.key];
       /* say so when the body cannot get there, rather than showing the wish */
@@ -1454,7 +1545,7 @@ function buildIdealUI(){
   refresh();
   $('#idealCard').classList.remove('hide');
 }
-$('#idealReset').addEventListener('click',()=>{ ideal={}; buildIdealUI(); drawFrame(); });
+$('#idealReset').addEventListener('click',()=>{ ideal={}; idealWhy={}; buildIdealUI(); drawFrame(); });
 function setView(v){
   viewMode=v; showIdeal=true;
   ['side','ideal','over'].forEach(k=>{
@@ -1470,6 +1561,134 @@ function setView(v){
 setView(viewMode);
 
 
+
+/* ---------- the pro's own words ----------
+   Same vocabulary as the instruction console, brought in here so a coach can
+   type what they would say and watch the figure change, instead of exporting a
+   file, going to another page and coming back. Anything this page cannot bend
+   is named out loud rather than dropped. */
+const POINT_WORDS=[
+  [/アドレス|構え|セットアップ/,'P1'],
+  [/テークバック|始動/,'P2'],
+  [/ハーフウェイバック|左腕が地面/,'P3'],
+  [/トップ/,'P4'],
+  [/切り返し|トランジション/,'P5'],
+  [/ハーフウェイダウン|ダウンスイング|ダウンで/,'P6'],
+  [/インパクト|当た(り|る)|ヒット|ボールを打/,'P7'],
+  [/フォロー/,'P8'],
+  [/リリース/,'P9'],
+  [/フィニッシュ|振り(切|抜)/,'P10']
+];
+/* [時点, 軸, '+'加算 / '='目標値, 量] */
+const SAY_RULES=[
+  {re:/(トップ).*(深く|高く|大きく)/,               why:'トップを深く',       ef:[['P4','handHeight','+',10],['P4','shoulderTurn','+',10]]},
+  {re:/(トップ).*(浅く|低く|コンパクト)|コンパクト/, why:'トップをコンパクトに', ef:[['P4','handHeight','+',-9],['P4','shoulderTurn','+',-9]]},
+  {re:/(肩).*(回|捻)/,                              why:'肩をしっかり回す',   ef:[['P4','shoulderTurn','+',10]]},
+  {re:/(捻転差|X.?ファクター|上体と下半身)/i,        why:'捻転差を作る',       ef:[['P4','shoulderTurn','+',8],['P4','hipTurn','+',-4]]},
+  {re:/(腰|下半身).*(先行|から切|リード|使)/,        why:'腰の回転を先行',     ef:[['P7','hipTurn','+',-8],['P6','hipTurn','+',-6]]},
+  {re:/(前傾).*(維持|キープ|保)|起き上が|伸び上が/,  why:'前傾を維持',         ef:[['P7','spineAngle','~',0]]},
+  {re:/(前傾).*(深く|強く)/,                         why:'前傾を深く',         ef:[['P1','spineAngle','+',4]]},
+  {re:/(頭).*(動かさ|止め|固定|残)|上下動/,          why:'頭を動かさない',     ef:[['P7','headHeight','=',-2]]},
+  {re:/右肘.{0,6}(絞|体に近|畳|たた)/,               why:'右肘を絞る',   dyn:'P6', ef:[['P6','elbowR','+',-4]]},
+  {re:/右肘.{0,6}(離|開|浮)/,                        why:'右肘を離す',   dyn:'P6', ef:[['P6','elbowR','+',4]]},
+  {re:/(左膝|左足).{0,6}(伸ば|伸展|突っ張)/,         why:'左膝を伸ばす',       ef:[['P7','kneeFlexL','+',-6]]},
+  {re:/右膝.{0,6}(キープ|保|角度を維持)/,            why:'右膝の角度を保つ',   ef:[['P4','kneeFlexR','+',4]]},
+  {re:/(膝|ひざ).{0,6}(伸び上が|伸びて)/,            why:'膝の伸び上がりを抑える', ef:[['P7','kneeFlexL','+',5],['P7','kneeFlexR','+',5]]},
+  {re:/ハンドファースト|手元.*先行/,                 why:'ハンドファースト',   ef:[['P7','handAlong','+',2.5]]},
+  {re:/(手|グリップ|ハンド).{0,8}(体に近|内側|近づ|近く)/,   why:'手元を体に近く', dyn:'P7', ef:[['P7','handDistance','+',-3]]},
+  {re:/(手|グリップ|ハンド).{0,8}(体から遠|外側|遠ざ|遠く)/, why:'手元を体から遠く', dyn:'P7', ef:[['P7','handDistance','+',3]]},
+  {re:/(手元|グリップ|ハンド).{0,6}(高く|上げ)/,     why:'手元を高く',   dyn:'P7', ef:[['P7','handHeight','+',6]]},
+  {re:/(手元|グリップ|ハンド).{0,6}(低く|下げ)/,     why:'手元を低く',   dyn:'P7', ef:[['P7','handHeight','+',-6]]},
+  /* 形を変えられない軸。指摘としては受け取り、出せないことを伝える */
+  {re:/(右|体).*(流れ|スウェー)|スウェー/,           why:'右に流れない',       ef:[['P4','hipLateral','=',2]]},
+  {re:/(左足|左).*(乗|体重)|体重移動/,               why:'左足に乗る',         ef:[['P7','weightLeft','+',14]]},
+  {re:/(コック|手首).{0,6}(深く|早く|作)|タメを作/,  why:'コックを深く',       ef:[['P4','wristHinge','+',12]]},
+  {re:/(ほど|解け|リリースが早|アーリーリリース|タメがな)/, why:'タメを保つ',  ef:[['P6','wristHinge','+',12]]},
+  {re:/(掌屈|ボウ|手のひら側)/,                      why:'掌屈を入れる',       ef:[['P4','wristBow','+',8]]},
+  {re:/フェース.{0,6}(閉じ|クローズ|かぶせ|被せ)/,   why:'フェースを閉じる',   ef:[['P7','faceAngle','+',-6]]},
+  {re:/シャフト.{0,6}(立て|立つ|スティープ)/,        why:'シャフトを立てる',   ef:[['P5','shaftPlane','+',5]]},
+  {re:/シャフト.{0,6}(寝|フラット|シャロー|倒)/,     why:'シャフトを寝かせる', ef:[['P5','shaftPlane','+',-5]]},
+  {re:/(ゆっくり|ゆったり|テンポ.*落と|間を|急がな)/, why:'テンポをゆっくり',  ef:[['g','tempoRatio','+',0.4]]},
+  {re:/フィニッシュ.*(バランス|保|止ま|耐え)/,       why:'フィニッシュで止まる', ef:[['g','finishHold','=',2]]}
+];
+const SAY_CHIPS=['トップを深く','肩をしっかり回す','前傾を維持','頭を動かさない',
+  'インパクトで手元を体に近く','右肘を絞る','膝が伸び上がっている','捻転差を作る'];
+
+let idealWhy={};      /* {P4:{shoulderTurn:'トップを深く'}} — どの指示で動いたか */
+
+function clampAxis(key,v){
+  const a=IDEAL_AXES.find(x=>x[0]===key);
+  return a ? Math.max(a[3],Math.min(a[4],v)) : v;
+}
+function applySaying(text){
+  const clauses=text.split(/[。\n]+/).map(s=>s.trim()).filter(Boolean);
+  if(!clauses.length){ $('#sayNote').textContent='指示を書いてください'; return; }
+  const hit=[], noAxis=[], noPoint=[], noShape=[], unread=[];
+  const seen=new Set();
+  clauses.forEach((c,ci)=>{
+    const at=(POINT_WORDS.find(w=>w[0].test(c))||[])[1]||null;
+    SAY_RULES.forEach(rule=>{
+      if(!rule.re.test(c)) return;
+      seen.add(ci);
+      rule.ef.forEach(ef=>{
+        const tp=(rule.dyn&&at)?at:ef[0], ax=ef[1], mode=ef[2], val=ef[3];
+        const nm=AXIS_ANY[ax]||ax;
+        if(tp==='g'){ noShape.push(`${rule.why}（${nm}は骨格の形ではありません）`); return; }
+        if(!P_KEYS.includes(tp)){ noPoint.push(`${rule.why}（${tp}は判定していません）`); return; }
+        if(!CAN_BEND.includes(ax)){ noAxis.push(`${rule.why}（${nm}は形を変えられません）`); return; }
+        let d;
+        if(mode==='~'){
+          /* 「維持」は固定値ではなく、その人のアドレスの値に合わせる */
+          const at2=metricsAt(pIdx[tp]), ad=metricsAt(pIdx.P1);
+          if(!at2||!ad||at2[ax]==null||ad[ax]==null){ noAxis.push(rule.why+'（'+nm+'を測れていません）'); return; }
+          d=ad[ax]-at2[ax];
+        } else
+        if(mode==='='){
+          const now=metricsAt(pIdx[tp]);
+          if(!now||now[ax]==null){ noAxis.push(`${rule.why}（${nm}を測れていません）`); return; }
+          d=val-now[ax];
+        }else d=val;
+        ideal[tp]=ideal[tp]||{}; idealWhy[tp]=idealWhy[tp]||{};
+        const next=clampAxis(ax,(ideal[tp][ax]||0)+d);
+        if(!next){ delete ideal[tp][ax]; delete idealWhy[tp][ax]; return; }
+        ideal[tp][ax]=Math.round(next*2)/2;
+        idealWhy[tp][ax]=rule.why;
+        hit.push(`${tp} ${nm} ${next>0?'+':''}${Math.round(next*2)/2}`);
+      });
+    });
+  });
+  clauses.forEach((c,i)=>{ if(!seen.has(i)) unread.push(c); });
+
+  if(hit.length) log('指示を数値にしました: '+[...new Set(hit)].join(' / '));
+  [[noAxis,'この画面で形を変えられません'],[noPoint,'P2・P5・P8は判定していません'],
+   [noShape,'骨格の形ではない指摘です']].forEach(([arr,head])=>{
+    if(arr.length) log('× '+head+': '+[...new Set(arr)].join(' / '));
+  });
+  if(unread.length) log('△ 読み取れなかった文: '+unread.join(' / '));
+
+  $('#sayNote').textContent = hit.length
+    ? `${[...new Set(hit)].length}か所を変更しました。${unread.length||noAxis.length||noPoint.length||noShape.length?'反映できなかったものはログに出しています。':''}`
+    : '数値にできる指摘が見つかりませんでした。ログを見てください。';
+  buildIdealUI(); drawFrame();
+}
+$('#sayGo').addEventListener('click',()=>applySaying($('#say').value));
+$('#sayClear').addEventListener('click',()=>{
+  ideal={}; idealWhy={}; $('#say').value=''; $('#sayNote').textContent='';
+  buildIdealUI(); drawFrame();
+});
+(function(){
+  const box=$('#sayChips');
+  SAY_CHIPS.forEach(t=>{
+    const b=document.createElement('button');
+    b.className='sm'; b.textContent=t;
+    b.onclick=()=>{
+      const el=$('#say');
+      el.value=(el.value.trim()?el.value.replace(/。?\s*$/,'。'):'')+t+'。';
+      applySaying(el.value);
+    };
+    box.appendChild(b);
+  });
+})();
 /* ---------- read the coach's instruction sheet ----------
    The instruction console turns what the pro said into targets per axis per P
    point, with its own per-axis limits and an approval step. It reads the JSON
@@ -1497,7 +1716,7 @@ $('#planFile').addEventListener('change', async e=>{
   if(j.instruction) log('プロの指示: '+j.instruction);
   if(j.approvalBlocked) log('△ この指示書はまだ承認されていません。内容を確かめてください');
 
-  ideal={};
+  ideal={}; idealWhy={};
   const applied=[], skippedAxis=[], skippedPoint=[], clamped=[];
   ps.forEach(p=>{
     if(!p||!p.axis||p.delta==null) return;
@@ -1507,6 +1726,8 @@ $('#planFile').addEventListener('change', async e=>{
     if(!CAN_BEND.includes(p.axis)){ skippedAxis.push(`${p.point} ${name}`); return; }
     ideal[p.point]=ideal[p.point]||{};
     ideal[p.point][p.axis]=p.delta;
+    idealWhy[p.point]=idealWhy[p.point]||{};
+    idealWhy[p.point][p.axis]='指示書';
     applied.push(`${p.point} ${name} ${p.delta>0?'+':''}${p.delta}${p.unit||''}`);
     if(p.clampedToLimit) clamped.push(`${p.point} ${name}`);
   });
