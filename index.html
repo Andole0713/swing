@@ -317,7 +317,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <h1>SwingFrame</h1>
       <p>スイング撮影・スイング分析</p>
       <!-- 表示用の版数。sw.js の CACHE と必ずそろえること（片方だけ上げると更新に気づけません） -->
-      <div id="hVer">v31</div>
+      <div id="hVer">v32</div>
     </div>
     <button class="hbtn pri" id="hShoot"><i>●</i><span>スイングを撮影<em>ガイドに合わせて自動で録画</em></span></button>
     <button class="hbtn" id="hLib"><i>▤</i><span>ライブラリ<em id="hLibSub">保存した動画と画像</em></span></button>
@@ -1987,6 +1987,28 @@ function seekTo(t){
     setTimeout(fin,500);
   });
 }
+/* Fill the frames between two readings. Over a sixtieth of a second the hands
+   travel almost straight, so a straight line between them is close enough for
+   something being watched rather than measured — and it halves the wait. */
+function fillSkel(samples,step,n){
+  var out=new Array(n).fill(null);
+  for(var i=0;i<n;i++){
+    var k=i/step, lo=Math.floor(k), hi=Math.ceil(k);
+    var a=samples[lo], b=samples[hi];
+    if(!a&&!b)continue;
+    if(!a){ out[i]=b; continue; }
+    if(!b||lo===hi){ out[i]=a; continue; }
+    var u=k-lo, p=new Array(33);
+    for(var j=0;j<33;j++){
+      if(!a[j]||!b[j]){ p[j]=a[j]||b[j]; continue; }
+      p[j]={x:a[j].x+(b[j].x-a[j].x)*u,
+            y:a[j].y+(b[j].y-a[j].y)*u,
+            v:Math.min(a[j].v,b[j].v)};
+    }
+    out[i]=p;
+  }
+  return out;
+}
 async function buildSkeleton(){
   if(!cur||!rv.videoWidth){toast('映像がありません');return}
   skelBusy=true;$('#rSkel').disabled=true;
@@ -2006,25 +2028,32 @@ async function buildSkeleton(){
   if(cur.swing>0){ t0=Math.max(0,cur.swing-3.5); t1=Math.min(dur,cur.swing+3.5); }
   skelFrom=Math.round(t0*skelFps);
   var n=Math.max(1,Math.round((t1-t0)*skelFps));
-  var was=rv.paused; rv.pause();
-  var got=0,arr=new Array(n).fill(null);
-  for(var i=0;i<n;i++){
-    await seekTo(Math.min(dur-1e-3,t0+(i+0.5)/skelFps));
+  /* At 60 a second, reading every other frame still leaves thirty readings a
+     second on screen — plenty to watch. Slower footage is read in full. */
+  var step=skelFps>=50?2:1;
+  var m=Math.ceil(n/step);
+  rv.pause();
+  var got=0,samples=new Array(m).fill(null);
+  for(var k=0;k<m;k++){
+    await seekTo(Math.min(dur-1e-3,t0+(k*step+0.5)/skelFps));
     var p=window.__pose.detect(rv);
-    arr[i]=p; if(p)got++;
-    if(i%4===0){
-      skelMsg('骨格を調べています  '+Math.round((i+1)/n*100)+'%');
+    samples[k]=p; if(p)got++;
+    if(k%3===0){
+      skelMsg('骨格を調べています  '+Math.round((k+1)/m*100)+'%');
       await new Promise(function(r){setTimeout(r,0)});
     }
   }
   skelMsg('');
   skelBusy=false;$('#rSkel').disabled=false;
-  if(got<n*0.25){
+  if(got<m*0.25){
     skel=null;
     toast('骨格をうまく読み取れませんでした。全身が入るように撮ってください');
     return;
   }
-  skel=smoothSkel(arr,2);skelId=cur.id;skelOn=true;
+  /* settle the readings first, then fill the gaps — smoothing after filling
+     would just be averaging in the numbers we invented */
+  skel=fillSkel(smoothSkel(samples,1),step,n);
+  skelId=cur.id;skelOn=true;
   $('#rSkel').classList.add('on');
   await seekTo(Math.min(dur-1e-3,t0));
   redraw();
