@@ -1073,23 +1073,38 @@ function rotIn(p,origin,u,v,th){
   return add(origin, add(add(mul(u,a*c-b*s), mul(v,a*s+b*c)), rest));
 }
 
-/* Deltas at every frame: zero outside the swing, the set value at its own P
-   point, straight-line blend in between. */
+/* How much correction applies at each frame.
+
+   A change made at one position stays in the swing from there on. Told to turn
+   more at the top, the golfer does not un-turn on the way down — the whole
+   rest of the motion happens from the new position. So the correction grows in
+   from the address, reaches the figure the coach asked for, and holds unless
+   another position is given its own figure.
+
+   Only the positions the coach actually set count as anchors. The address is
+   added as a silent zero so the change grows in rather than appearing from the
+   first frame. */
 function idealAt(i){
-  const keys=P_KEYS.filter(k=>ideal[k]&&Object.keys(ideal[k]).length);
   const out={}; IDEAL_AXES.forEach(a=>out[a[0]]=0);
-  if(!keys.length) return out;
-  const pts=P_KEYS.map(k=>({f:pIdx[k], d:ideal[k]||{}})).sort((a,b)=>a.f-b.f);
   IDEAL_AXES.forEach(([key])=>{
-    let lo=null,hi=null;
-    for(const p of pts){
-      if(p.f<=i && (!lo||p.f>=lo.f)) lo=p;
-      if(p.f>=i && (!hi||p.f<=hi.f)) hi=p;
+    const pts=P_KEYS
+      .filter(k=>ideal[k]&&ideal[k][key]!=null&&ideal[k][key]!==0)
+      .map(k=>({f:pIdx[k], v:ideal[k][key]}))
+      .sort((a,b)=>a.f-b.f);
+    if(!pts.length) return;
+    const addr=pIdx.P1!=null?pIdx.P1:0;
+    if(pts[0].f>addr) pts.unshift({f:addr, v:0});
+    if(i<=pts[0].f){ out[key]=pts[0].v; return; }
+    const last=pts[pts.length-1];
+    if(i>=last.f){ out[key]=last.v; return; }     /* hold to the end */
+    for(let k=0;k<pts.length-1;k++){
+      const a=pts[k], b=pts[k+1];
+      if(i>=a.f && i<=b.f){
+        const u=b.f===a.f?1:(i-a.f)/(b.f-a.f);
+        out[key]=a.v+(b.v-a.v)*u;
+        return;
+      }
     }
-    const lv=lo?(lo.d[key]||0):0, hv=hi?(hi.d[key]||0):0;
-    if(!lo||!hi||lo.f===hi.f){ out[key]=lo?lv:hv; return; }
-    const u=(i-lo.f)/(hi.f-lo.f);
-    out[key]=lv+(hv-lv)*u;
   });
   return out;
 }
@@ -1099,7 +1114,9 @@ function deform(i){
   const f=frames[i];
   if(!f||!axes) return null;
   const d=idealAt(i);
-  if(IDEAL_AXES.every(a=>!d[a[0]])) return null;
+  /* Do not bail out when nothing is corrected at this frame. The target figure
+     has to be on screen for the whole swing — where it sits exactly on the
+     golfer, that itself is the message: this part is already right. */
   const src=f.ws||f.w;
   const w=src.map(p=>({x:p.x,y:p.y,z:p.z}));
   const hipMid=mid(w[LHIP],w[RHIP]);
@@ -1217,6 +1234,11 @@ function fitProj(i){
   const ax=(n*pxy-sx*ux)/dx, ay=(n*qxy-sy*uy)/dy;
   return {ax, bx:(ux-ax*sx)/n, ay, by:(uy-ay*sy)/n};
 }
+/* is anything actually being corrected at this frame? */
+function idealActive(i){
+  const d=idealAt(i);
+  return IDEAL_AXES.some(a=>Math.abs(d[a[0]]||0)>0.05);
+}
 function idealScreen(i){
   const w=deform(i); if(!w) return null;
   const P=fitProj(i); if(!P) return null;
@@ -1239,6 +1261,75 @@ async function gotoFrame(i){
   document.querySelectorAll('.pcell').forEach(el=>{
     el.classList.toggle('on', pIdx[el.dataset.k]===curFrame);
   });
+}
+/* Draw the figure as a body rather than a stick. Widths come from the person's
+   own trunk length, so a tall player gets a tall figure and a stocky one a
+   stocky figure.
+
+   The parts are painted opaque onto a scratch canvas first and that canvas is
+   then composited once. Filling them straight onto the frame at part-opacity
+   leaves every seam and overlap visible, and the figure reads as a pile of
+   tubes instead of a person. */
+const TAU=Math.PI*2;
+let _silCv=null;
+function silCtx(W,H){
+  if(!_silCv) _silCv=document.createElement('canvas');
+  if(_silCv.width!==W||_silCv.height!==H){ _silCv.width=W; _silCv.height=H; }
+  const c=_silCv.getContext('2d');
+  c.clearRect(0,0,W,H);
+  return c;
+}
+/* Each part is filled on its own. Collecting them into one path and filling
+   once looks tidier but is wrong: subpaths that wind opposite ways cancel each
+   other under the nonzero rule, punching holes where a limb crosses the trunk.
+   On an opaque scratch canvas, painting them one by one simply merges. */
+function capsule(ctx,a,b,r1,r2){
+  const dx=b.x-a.x, dy=b.y-a.y, L=Math.hypot(dx,dy);
+  const dot=(p,r)=>{ ctx.beginPath(); ctx.arc(p.x,p.y,r,0,TAU); ctx.fill(); };
+  if(L<1e-6){ dot(a,r1); return; }
+  const px=-dy/L, py=dx/L;
+  ctx.beginPath();
+  ctx.moveTo(a.x+px*r1, a.y+py*r1);
+  ctx.lineTo(b.x+px*r2, b.y+py*r2);
+  ctx.lineTo(b.x-px*r2, b.y-py*r2);
+  ctx.lineTo(a.x-px*r1, a.y-py*r1);
+  ctx.closePath(); ctx.fill();
+  dot(a,r1); dot(b,r2);
+}
+function silhouette(ctx,pts,W,H,colour,alpha,glow,seeMin){
+  const P=i=>pts[i] && ({x:pts[i].x*W, y:pts[i].y*H});
+  const ok=i=>pts[i] && (pts[i].vis==null || pts[i].vis>=seeMin);
+  const mid2=(a,b)=>({x:(a.x+b.x)/2, y:(a.y+b.y)/2});
+  if(!ok(11)||!ok(12)||!ok(23)||!ok(24)) return;
+  const ls=P(11), rs=P(12), lh=P(23), rh=P(24);
+  const sh=mid2(ls,rs), hp=mid2(lh,rh);
+  /* the trunk sets the scale; seen from behind the shoulders can almost
+     overlap, so their spacing is no use as a yardstick */
+  const u=Math.max(8, Math.hypot(sh.x-hp.x, sh.y-hp.y));
+  const c=silCtx(W,H);
+  c.fillStyle=colour;
+  capsule(c,sh,hp,u*0.36,u*0.30);                 /* trunk */
+  if(ok(0)){
+    const nose=P(0);
+    const neck={x:sh.x+(nose.x-sh.x)*0.35, y:sh.y+(nose.y-sh.y)*0.35};
+    capsule(c,sh,neck,u*0.16,u*0.13);
+    c.beginPath(); c.arc(nose.x,nose.y,u*0.30,0,TAU); c.fill();
+  }
+  capsule(c,ls,rs,u*0.17,u*0.17);                 /* shoulder girdle */
+  capsule(c,lh,rh,u*0.20,u*0.20);                 /* hips */
+  [[11,13,0.155,0.115],[12,14,0.155,0.115],
+   [13,15,0.115,0.085],[14,16,0.115,0.085],
+   [23,25,0.205,0.145],[24,26,0.205,0.145],
+   [25,27,0.145,0.100],[26,28,0.145,0.100],
+   [27,31,0.095,0.075],[28,32,0.095,0.075]].forEach(b=>{
+    if(!ok(b[0])||!ok(b[1]))return;
+    capsule(c,P(b[0]),P(b[1]),u*b[2],u*b[3]);
+  });
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  if(glow){ ctx.shadowColor=glow; ctx.shadowBlur=Math.max(5,W/140); }
+  ctx.drawImage(_silCv,0,0);
+  ctx.restore();
 }
 function skeleton(ctx,pts,W,H,col,dotCol,lw){
   /* a joint the model cannot actually see is guesswork; leave it out rather
@@ -1269,13 +1360,21 @@ function panel(ctx,x,W,H,which,lw){
   ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip();
   ctx.drawImage(video,0,0,W,H);
   const f=frames[curFrame];
-  /* the ideal goes down first so the golfer's own movement stays on top — it is
-     what they came to look at, and the thicker target line would bury it */
+  /* the silhouette carries its own glow; a page-level shadow here would
+     double up on it */
+  /* the target goes down first so the golfer's own body stays on top — it is
+     what they came to look at */
   if(which!=='real'){
     const g=idealScreen(curFrame);
-    if(g) skeleton(ctx,g,W,H,'rgba(255,210,61,.95)',which==='ideal'?'#fff':null,lw*1.15);
+    /* full strength where it differs, faint where it already matches — the eye
+       should land on what needs changing, not on the parts that are fine */
+    const on=idealActive(curFrame);
+    if(g) silhouette(ctx,g,W,H,'#ffc628', on?0.55:0.18,
+      on?'rgba(255,214,90,.9)':null, DRAW_SEE);
   }
-  if(which!=='ideal') skeleton(ctx,f.ns||f.n,W,H,'#3ddc84','#fff',lw);
+  if(which!=='ideal') silhouette(ctx,f.ns||f.n,W,H,'#3ddc84',0.42,
+    'rgba(61,220,132,.9)', DRAW_SEE);
+  ctx.shadowBlur=0;
   if(which!=='ideal'){
     const n=f.ns||f.n;
     ctx.strokeStyle='#ffd23d'; ctx.lineWidth=lw; ctx.beginPath();
@@ -2055,6 +2154,7 @@ async function showLibrary(){
   }
 }
 showLibrary();
+window.__lab={set frames(v){frames=v},set fps(v){fps=v},set pIdx(v){pIdx=v},set axes(v){axes=v},set scale(v){scale=v},set ideal(v){ideal=v},smoothDrawPoints,buildIdealUI,drawFrame};
 log('準備完了。動画ファイルを選んでください。');
 </script>
 </body>
