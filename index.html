@@ -69,6 +69,13 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 #recDot{width:58px;height:58px;border-radius:50%;background:var(--bad);transition:all .18s}
 #rec.recording #recDot{width:28px;height:28px;border-radius:7px}
 #rec:disabled{opacity:.35}
+/* the button decides the length now, so the elapsed time has to be readable
+   without doing arithmetic on a ring */
+#recTime{position:absolute;left:50%;bottom:100%;transform:translateX(-50%);margin-bottom:10px;
+  display:none;white-space:nowrap;padding:5px 12px;border-radius:99px;
+  background:rgba(14,17,21,.78);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  font-size:13.8px;color:#fff;font-variant-numeric:tabular-nums;pointer-events:none}
+#recTime.on{display:block}
 .fbtn{min-width:64px;padding:10px 12px;border-radius:13px;background:var(--panel);border:1px solid var(--line);
   text-align:center;font-size:12.6px;color:var(--dim)}
 .fbtn i{font-style:normal;display:block;font-size:20.7px;color:var(--fg);margin-bottom:1px}
@@ -276,6 +283,30 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 #rNoteBox .nrow button.pri{background:rgba(61,220,132,.18);color:var(--accent);
   box-shadow:inset 0 0 0 1px rgba(61,220,132,.45)}
 
+/* length editor. It sits low so the picture stays visible while the handles
+   move — the whole point is to watch what is being cut. */
+#rCutBox{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom) + 50px);
+  transform:translateX(-50%);z-index:20;width:min(364px,92vw);
+  display:none;flex-direction:column;gap:7px;padding:12px;border-radius:16px;
+  background:var(--panel);border:1px solid var(--line);
+  -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
+#rCutBox.on{display:flex}
+#rCutBox .cttl{font-size:13.8px;color:var(--dim)}
+#rCutBox .crow{display:flex;align-items:center;gap:8px}
+#rCutBox .cl{flex:0 0 auto;width:32px;font-size:12.6px;color:var(--dim)}
+#rCutBox .crow input[type=range]{flex:1;min-width:0}
+#rCutBox .cv{flex:0 0 auto;width:52px;text-align:right;font-size:12.6px;
+  color:var(--fg);font-variant-numeric:tabular-nums}
+#rCutBox .cnow{font-size:13.2px;color:var(--dim)}
+#rCutBox .cnow b{font-size:18.4px;color:var(--accent);font-variant-numeric:tabular-nums}
+#rCutBox .crow2{display:flex;gap:7px}
+#rCutBox .crow2 button{flex:1;padding:10px 6px;border-radius:10px;background:var(--chip);
+  font-size:13.2px;color:var(--dim);white-space:nowrap}
+#rCutBox .crow2 button.pri{background:rgba(61,220,132,.18);color:var(--accent);
+  box-shadow:inset 0 0 0 1px rgba(61,220,132,.45)}
+#rCutBox .crow2 button:disabled{opacity:.35}
+#rCutBox .cnote{font-size:11.5px;color:var(--dim);line-height:1.55}
+
 .libtab{display:flex;gap:6px;padding:0 4px 8px}
 .libtab button{flex:1;padding:8px 4px;border-radius:9px;background:var(--chip);font-size:13.8px;color:var(--dim)}
 .libtab button.on{background:rgba(61,220,132,.18);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(61,220,132,.5)}
@@ -317,7 +348,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
       <h1>SwingFrame</h1>
       <p>スイング撮影・スイング分析</p>
       <!-- 表示用の版数。sw.js の CACHE と必ずそろえること（片方だけ上げると更新に気づけません） -->
-      <div id="hVer">v33</div>
+      <div id="hVer">v34</div>
     </div>
     <button class="hbtn pri" id="hShoot"><i>●</i><span>スイングを撮影<em>ガイドに合わせて自動で録画</em></span></button>
     <button class="hbtn" id="hLib"><i>▤</i><span>ライブラリ<em id="hLibSub">保存した動画と画像</em></span></button>
@@ -357,6 +388,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
                 stroke-linecap="round" stroke-dasharray="295.31" stroke-dashoffset="295.31"
                 transform="rotate(-90 50 50)"/>
       </svg>
+      <div id="recTime"></div>
       <button id="rec"><div id="recDot"></div></button>
     </div>
     <button class="fbtn" id="bSet"><i>⚙</i>設定</button>
@@ -400,7 +432,8 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 
 
     <div class="hd">録画</div>
-    <div class="row"><div class="lb">長さ</div><input type="range" id="rDur" min="6" max="120" step="1"><div class="val" id="vDur"></div></div>
+    <div class="row"><div class="lb">最長</div><input type="range" id="rDur" min="30" max="300" step="10"><div class="val" id="vDur"></div></div>
+    <div class="note" style="margin-top:-2px">撮影ボタンで撮るときは、<b style="color:var(--fg)">もう一度押すまで録画します</b>。ここは念のための上限で、この時間になったら自動で止まります。長さは撮ったあとに「長さ」から調節できます。</div>
     <div class="row"><div class="lb">自動録画</div><div class="seg" id="segAuto">
       <button data-v="off">オフ</button><button data-v="one">自動</button>
     </div></div>
@@ -488,6 +521,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
   <div class="rail" id="rPlayRail">
     <button class="rbtn" id="rSpeed"><i>1x</i>速度</button>
     <button class="rbtn" id="rCmpBtn"><i>⧉</i>比較</button>
+    <button class="rbtn" id="rCut"><i>✂</i>長さ</button>
     <button class="rbtn" id="rFav"><i id="favIcon">♡</i>お気に入り</button>
     <button class="rbtn" id="rNote"><i>✎</i>コメント</button>
     <button class="rbtn" id="rSaveBtn"><i>⬇</i>保存</button>
@@ -523,6 +557,30 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
     <button id="rCmpOff">やめる</button>
   </div>
 
+  <div id="rCutBox">
+    <div class="cttl">長さを調節</div>
+    <div class="crow"><span class="cl">開始</span>
+      <input type="range" id="rCut0" min="0" max="1000" step="1" value="0">
+      <span class="cv" id="vCut0">0.00</span></div>
+    <div class="crow"><span class="cl">終了</span>
+      <input type="range" id="rCut1" min="0" max="1000" step="1" value="1000">
+      <span class="cv" id="vCut1">0.00</span></div>
+    <div class="cnow">この長さ <b id="vCutLen">0.00</b> 秒　<span id="vCutFull"></span></div>
+    <div class="crow2">
+      <button id="rCutHere0">今ここを開始に</button>
+      <button id="rCutHere1">今ここを終了に</button>
+    </div>
+    <div class="crow2">
+      <button id="rCutAuto">スイングだけ</button>
+      <button id="rCutReset">全部にもどす</button>
+    </div>
+    <div class="cnote">つまみを動かすとその場面が表示されます。コマ送りで合わせてから「今ここを…」でも決められます。</div>
+    <div class="crow2">
+      <button id="rCutCancel">やめる</button>
+      <button id="rCutOK" class="pri">決定</button>
+    </div>
+  </div>
+
   <div id="rNoteBox">
     <div class="nttl">コメント</div>
     <textarea id="rNoteText" rows="4" placeholder="気づいたことを書いておくと、次に見返す時に役立ちます"></textarea>
@@ -550,7 +608,7 @@ var $=function(s){return document.querySelector(s)};
 
 /* ============ state ============ */
 var DEF={guide:'dtl',mirror:false,scale:.44,cx:.5,cy:.62,op:.6,zoom:1,face:'environment',
-         dur:8,cd:0,
+         dur:120,cd:0,
          img:null,cut:true,auto:'off',sens:5,post:5,trig:'sound',asens:5};
 var gAR=0.5,gAX=0.5;
 /* where the body sits inside each guide image, as a fraction of its width.
@@ -733,20 +791,33 @@ function beginRec(){
   mr.start();
   recording=true;recT0=Date.now();
   $('#rec').classList.add('recording');
+  $('#recTime').classList.add('on');
   if(autoRec){
     /* auto mode runs open-ended: the swing decides when to stop */
     swingT=-1;baseM=0;baseN=0;hotN=0;
     recTimer=setTimeout(function(){discard=true;stopRec()},(soundOnly()?MAXREC_SND:MAXREC)*1000);
     autoBadge(soundOnly()?'録画中':'スイング待ち');
   }else{
-    recTimer=setTimeout(stopRec,S.dur*1000);
+    /* the tap decides the length: it runs until the button is pressed again.
+       The cap is only there so a recording left running cannot fill the phone,
+       and the length is trimmed afterwards on the review screen. */
+    recTimer=setTimeout(function(){
+      stopRec();
+      toast('最長'+S.dur+'秒に達したので停止しました');
+    },S.dur*1000);
   }
   tick();
 }
+function mmss(s){
+  var m=Math.floor(s/60),r=Math.floor(s%60);
+  return m+':'+('0'+r).slice(-2);
+}
 function tick(){
   if(!recording)return;
-  var p=Math.min(1,(Date.now()-recT0)/(S.dur*1000));
+  var el=(Date.now()-recT0)/1000;
+  var p=Math.min(1,el/((autoRec?(soundOnly()?MAXREC_SND:MAXREC):S.dur)||1));
   $('#recArc').setAttribute('stroke-dashoffset',(295.31*(1-p)).toFixed(1));
+  $('#recTime').textContent='● '+mmss(el)+(autoRec?'':'　もう一度押して停止');
   recRaf=requestAnimationFrame(tick);
 }
 function stopRec(){
@@ -754,6 +825,7 @@ function stopRec(){
   recording=false;clearTimeout(recTimer);cancelAnimationFrame(recRaf);
   $('#rec').classList.remove('recording');
   $('#recArc').setAttribute('stroke-dashoffset','295.31');
+  $('#recTime').classList.remove('on');
   try{mr.stop()}catch(e){}
 
 }
@@ -1118,6 +1190,10 @@ function syncSheet(){
   rScale.sync();rOp.sync();rDur.sync();rSens.sync();rAsens.sync();sgAuto.sync();sgPost.sync();sgTrig.sync();autoBadge(autoState==='armed'?'構え待ち':'待機中');
 }
 function applyAll(){
+  /* "長さ" used to be the fixed length of a manual take — 8 seconds by default.
+     It is now the backstop only, so anything from the old meaning would cut a
+     recording off far too early. */
+  if(!(S.dur>=30))S.dur=120;
   if(S.guide!=='front'&&S.guide!=='dtl'&&S.guide!=='img')S.guide='dtl';
   if(S.guide==='img'&&!S.img)S.guide='dtl';
   var kind=S.guide,src=null,ar=null;
@@ -1494,6 +1570,7 @@ function openReview(id,from){
   $('#rSheet').classList.remove('on');
   closePops();
   $('#rNoteBox').classList.remove('on');
+  $('#rCutBox').classList.remove('on');
   sizeCanvas();
   listClips().then(function(a){
     clips=a;renderList();
@@ -1540,7 +1617,8 @@ function renderList(){
     var d=document.createElement('div');d.className='clip'+(cur&&cur.id===c.id?' on':'');
     d.innerHTML='<span class="fav">'+(c.fav?'♥':'')+'</span>'+
       '<span class="n">'+fmtTs(c.ts)+(c.note?'<br><span class="m">'+esc(c.note)+'</span>':'')+'</span>'+
-      '<span class="m">'+(c.guide==='front'?'正面':'後方')+' / '+((c.blob.size/1048576).toFixed(1))+'MB</span>'+
+      '<span class="m">'+(c.guide==='front'?'正面':'後方')+' / '+((c.blob.size/1048576).toFixed(1))+'MB'+
+        (c.cut1>c.cut0?' / '+(c.cut1-c.cut0).toFixed(1)+'秒':'')+'</span>'+
       '<button class="cmp'+(cmpId===c.id?' on':'')+'">'+(cmpId===c.id?'比較中':'比較')+'</button>';
     d.querySelector('.n').onclick=function(){pick(c);$('#rSheet').classList.remove('on')};
     d.querySelector('.m').onclick=function(){pick(c);$('#rSheet').classList.remove('on')};
@@ -1566,15 +1644,20 @@ function pick(c){
   $('#rTitle').textContent=fmtTs(c.ts)+'  ('+(c.guide==='front'?'正面':'後方')+')'+
     (c.swing?'  ▸ スイング '+c.swing.toFixed(1)+'秒':'');
   $('#rEmpty').style.display='none';
-  /* land just before the detected swing instead of at the address wait */
-  if(c.swing){
-    var seek=function(){
-      rv.removeEventListener('loadeddata',seek);
-      try{rv.currentTime=Math.max(0,c.swing-PRE)}catch(e){}
-    };
-    rv.addEventListener('loadeddata',seek);
-  }
+  /* land at the start of what the person kept, or just before the detected
+     swing instead of at the address wait */
+  var seek=function(){
+    rv.removeEventListener('loadeddata',seek);
+    try{
+      if(c.cut1>c.cut0)rv.currentTime=c.cut0;
+      else if(c.swing)rv.currentTime=Math.max(0,c.swing-PRE);
+    }catch(e){}
+    cutSync();
+    offerCut();
+  };
+  rv.addEventListener('loadeddata',seek);
   lines=[];
+  closeCut();
   if(skelId!==c.id)skelReset();     /* 別のスイングなら骨格は作り直し */
   pending=null; $('#rHand').classList.remove('on');
   sizeCanvas();renderList();syncMeta();
@@ -1595,10 +1678,34 @@ function setCompare(c){
   setSplit(false);
   renderList();
 }
-rv.addEventListener('loadedmetadata',function(){sizeCanvas();updTime()});
+/* ============ length ============
+   The cut is kept as two times on the clip rather than by re-encoding it, so
+   nothing is ever lost and the decision can be changed later. Everything that
+   reads the clip — the seek bar, the frame steps, the skeleton pass and the
+   save — works inside these two times. */
+function vdur(){return isFinite(rv.duration)?rv.duration:0}
+function cutA(){return (cur&&cur.cut1>cur.cut0)?Math.max(0,cur.cut0):0}
+function cutB(){var d=vdur();
+  return (cur&&cur.cut1>cur.cut0&&d)?Math.min(cur.cut1,d):d}
+function cutOn(){var d=vdur();return d>0&&(cutA()>0.02||cutB()<d-0.02)}
+function cutSync(){
+  var on=cutOn();
+  $('#rCut').classList.toggle('on',on);
+  var t=$('#rTitle');
+  if(cur)t.textContent=fmtTs(cur.ts)+'  ('+(cur.guide==='front'?'正面':'後方')+')'+
+    (on?'  ▸ '+(cutB()-cutA()).toFixed(1)+'秒に調節':(cur.swing?'  ▸ スイング '+cur.swing.toFixed(1)+'秒':''));
+}
+rv.addEventListener('loadedmetadata',function(){sizeCanvas();updTime();cutSync()});
 rv.addEventListener('timeupdate',function(){
+  var b=cutB();
+  /* Stop at the out point while watching. Reading the skeleton and writing the
+     file both play the clip on purpose and both decide for themselves where to
+     stop, so leave those alone — cutting them short here left the export
+     waiting at a position it could never reach. */
+  if(!skelScan&&!burning&&!rv.paused&&cutOn()&&rv.currentTime>=b-0.02)rv.pause();
   updTime();
-  if(rv.duration)$('#rSeek').value=Math.round(rv.currentTime/rv.duration*1000);
+  var a=cutA(),sp=b-a;
+  if(sp>0)$('#rSeek').value=Math.max(0,Math.min(1000,Math.round((rv.currentTime-a)/sp*1000)));
   syncCmp();
 });
 rv.addEventListener('play',function(){$('#rPlay').querySelector('i').textContent='❚❚';if(cmpId)rv2.play().catch(function(){})});
@@ -1610,10 +1717,17 @@ function syncCmp(){
   if(Math.abs(rv2.currentTime-t)>0.12)rv2.currentTime=t;
 }
 function updTime(){
-  var d=isFinite(rv.duration)?rv.duration:0;
-  $('#rTime').textContent=rv.currentTime.toFixed(2)+' / '+d.toFixed(2);
+  var a=cutA(),b=cutB();
+  $('#rTime').textContent=Math.max(0,rv.currentTime-a).toFixed(2)+' / '+Math.max(0,b-a).toFixed(2);
 }
-$('#rPlay').onclick=function(){if(rv.paused)rv.play().catch(function(){});else rv.pause()};
+$('#rPlay').onclick=function(){
+  if(rv.paused){
+    var a=cutA(),b=cutB();
+    /* starting again from outside the kept part would play what was cut away */
+    if(b&&(rv.currentTime<a-0.05||rv.currentTime>=b-0.05)){try{rv.currentTime=a}catch(e){}}
+    rv.play().catch(function(){});
+  }else rv.pause();
+};
 /* tap = one frame, hold = keep stepping until released. The repeat speeds up
    the longer it is held so a long scrub does not take forever. */
 var holdDir=0,holdTimer=null,holdT0=0;
@@ -1647,12 +1761,14 @@ function step(dir){
   rv.pause();
   var f=1/((cur&&cur.fps)||30);
   var t=rv.currentTime+dir*f;
-  if(isFinite(rv.duration))t=Math.max(0,Math.min(rv.duration-0.001,t));
+  var a=cutA(),b=cutB();
+  if(b)t=Math.max(a,Math.min(b-0.001,t));
   rv.currentTime=Math.max(0,t);syncCmp();
 }
 $('#rSeek').addEventListener('input',function(){
-  if(!isFinite(rv.duration))return;
-  rv.pause();rv.currentTime=rv.duration*this.value/1000;syncCmp();
+  var a=cutA(),b=cutB();
+  if(!b)return;
+  rv.pause();rv.currentTime=a+(b-a)*this.value/1000;syncCmp();
 });
 var SPEEDS=[1,0.5,0.25,0.1],sIdx=0;
 $('#rSpeed').onclick=function(){
@@ -1820,7 +1936,9 @@ $('#rSave').onclick=function(){
   var sw=cur.swing||0;
   var t0=sw?Math.max(0,sw-PRE):0;
   var t1=sw?Math.min(dur||1e9,sw+(S.post||5)):(dur||0);
-  var needTrim=sw&&(t0>0.3||(dur&&t1<dur-0.3));
+  /* a length the person set themselves wins over the automatic window */
+  if(cutOn()){t0=cutA();t1=cutB()}
+  var needTrim=(t0>0.3||(dur&&t1<dur-0.3));
   /* the skeleton is drawn, not part of the file, so it has to be re-encoded in
      just like the lines do — without this it silently vanishes on save */
   if(!lines.length&&!needTrim&&!skelOn){
@@ -1864,24 +1982,48 @@ $('#rSave').onclick=function(){
     if(!stopped&&rv.currentTime>=t1-0.02)return finish();
     raf=requestAnimationFrame(frame);
   }
+  /* Writing starts when the picture actually starts moving, not when play() is
+     asked for. Straight after the skeleton pass the first frame can take a
+     second or three to arrive, and everything before it went into the file as a
+     frozen opening — a two second clip came out five seconds long. */
+  var begun=false;
+  function begin(){
+    if(begun)return; begun=true;
+    rv.removeEventListener('timeupdate',watch);
+    try{rec.start()}catch(e){}
+  }
+  function watch(){ if(rv.currentTime>t0+0.03)begin() }
   function finish(){
     if(stopped)return;
     stopped=true;
     rv.removeEventListener('ended',finish);
-    setTimeout(function(){try{rec.stop()}catch(e){}},250);
+    rv.removeEventListener('timeupdate',watch);
+    setTimeout(function(){
+      if(rec.state!=='inactive'){try{rec.stop()}catch(e){}return}
+      /* nothing was ever written: put the screen back rather than leave the
+         button saying 書出中 for ever */
+      burning=false;$('#rSave').textContent='動画で保存';
+      cancelAnimationFrame(raf);rv.pause();
+      toast('書き出せませんでした。もう一度お試しください');
+    },250);
   }
   burning=true;
   $('#rSave').textContent='書出中';
   rv.pause();rv.playbackRate=1;
+  var went=false;
   var go=function(){
+    if(went)return; went=true;
     rv.removeEventListener('seeked',go);
     rv.addEventListener('ended',finish);
-    rec.start();
+    rv.addEventListener('timeupdate',watch);
+    setTimeout(begin,2000);          /* whatever happens, do not wait for ever */
     frame();
-    rv.play().catch(function(){finish()});
+    rv.play().catch(function(){begin();finish()});
   };
   rv.addEventListener('seeked',go);
   rv.currentTime=t0;
+  /* already parked on the first frame, so no seek and no seeked event */
+  if(Math.abs(rv.currentTime-t0)<0.01)setTimeout(go,0);
 };
 /* side-by-side vs overlay comparison */
 var split=false;
@@ -1955,6 +2097,7 @@ window.addEventListener('resize',function(){if($('#reviewScreen').classList.cont
 var SKBONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],
              [23,25],[25,27],[24,26],[26,28],[27,31],[28,32],[0,11],[0,12]];
 var skel=null, skelId=null, skelFrom=0, skelFps=60, skelOn=false, skelBusy=false, skelRaf=0;
+var skelScan=false;      /* true while the clip is being played through to read it */
 
 function skelMsg(t){
   var el=$('#rSkelMsg');
@@ -1978,36 +2121,166 @@ function seekTo(t){
     var done=false;
     var fin=function(){ if(done)return; done=true; rv.removeEventListener('seeked',onSeek); res(); };
     var onSeek=function(){
-      if('requestVideoFrameCallback' in rv) rv.requestVideoFrameCallback(fin);
       requestAnimationFrame(function(){ requestAnimationFrame(fin) });
       setTimeout(fin,80);
     };
     rv.addEventListener('seeked',onSeek);
+    /* asked for before the seek rather than after it. The next reading runs
+       while this frame is still being decoded, so by the time the seek is
+       acknowledged the picture may already have been shown — and a callback
+       registered at that point would sit waiting for a frame that has gone. */
+    if('requestVideoFrameCallback' in rv){ try{ rv.requestVideoFrameCallback(fin) }catch(e){} }
     rv.currentTime=t;
     setTimeout(fin,500);
   });
 }
+/* Reading and decoding are two different engines, and making each wait for the
+   other doubled the time the person spends staring at a progress figure. Copy
+   the frame out, start the next seek immediately, and read the copy while the
+   video is already decoding the one after it.
+   The copy is also shrunk on the way: the model works on a 256px square however
+   big the picture is, so anything past about 960 across is thrown away inside
+   the library rather than by us — but we pay to hand it over. */
+var snapC=document.createElement('canvas'),snapX=null;
+function snapFrame(){
+  var W=rv.videoWidth,H=rv.videoHeight;
+  if(!W||!H)return null;
+  var s=Math.min(1,960/Math.max(W,H));
+  var w=Math.max(1,Math.round(W*s)),h=Math.max(1,Math.round(H*s));
+  if(snapC.width!==w||snapC.height!==h){snapC.width=w;snapC.height=h;snapX=null}
+  if(!snapX){try{snapX=snapC.getContext('2d',{alpha:false})}catch(e){snapX=snapC.getContext('2d')}}
+  if(!snapX)return null;
+  try{snapX.drawImage(rv,0,0,w,h)}catch(e){return null}
+  return snapC;
+}
 /* Fill the frames between two readings. Over a sixtieth of a second the hands
    travel almost straight, so a straight line between them is close enough for
-   something being watched rather than measured — and it halves the wait. */
-function fillSkel(samples,step,n){
+   something being watched rather than measured — and it halves the wait.
+   The readings do not arrive at an even spacing any more, so each gap is filled
+   from the two readings that actually bracket it. */
+function lerpPose(a,b,u){
+  var p=new Array(33);
+  for(var j=0;j<33;j++){
+    if(!a[j]||!b[j]){ p[j]=a[j]||b[j]; continue; }
+    p[j]={x:a[j].x+(b[j].x-a[j].x)*u,
+          y:a[j].y+(b[j].y-a[j].y)*u,
+          v:Math.min(a[j].v,b[j].v)};
+  }
+  return p;
+}
+function fillGaps(got,n){
   var out=new Array(n).fill(null);
+  if(!got.length)return out;
+  var j=0;
   for(var i=0;i<n;i++){
-    var k=i/step, lo=Math.floor(k), hi=Math.ceil(k);
-    var a=samples[lo], b=samples[hi];
-    if(!a&&!b)continue;
-    if(!a){ out[i]=b; continue; }
-    if(!b||lo===hi){ out[i]=a; continue; }
-    var u=k-lo, p=new Array(33);
-    for(var j=0;j<33;j++){
-      if(!a[j]||!b[j]){ p[j]=a[j]||b[j]; continue; }
-      p[j]={x:a[j].x+(b[j].x-a[j].x)*u,
-            y:a[j].y+(b[j].y-a[j].y)*u,
-            v:Math.min(a[j].v,b[j].v)};
-    }
-    out[i]=p;
+    while(j+1<got.length && got[j+1].i<=i) j++;
+    var lo=got[j], hi=(j+1<got.length)?got[j+1]:lo;
+    if(i<=lo.i){ out[i]=lo.p; continue }
+    if(i>=hi.i){ out[i]=hi.p; continue }
+    out[i]=lerpPose(lo.p,hi.p,(i-lo.i)/(hi.i-lo.i));
   }
   return out;
+}
+/* ---- reading the swing ----
+   Seeking to each frame in turn is the obvious way and it is the slow one: the
+   decoder is asked to jump about, and it competes with the model for the same
+   graphics hardware, so a reading that takes nine milliseconds on its own ends
+   up costing forty. Playing the clip once instead lets the decoder do what it
+   is built for, and every frame it shows is read on the way past. The wait is
+   then simply how long the stretch is, and a faster phone spends the slack on
+   reading more frames rather than on finishing sooner. */
+function scanPlay(t0,t1,n){
+  return new Promise(function(res){
+    if(!('requestVideoFrameCallback' in rv))return res(null);
+    /* one pass at normal speed reads as many frames as the phone can manage and
+       takes exactly as long as the stretch. Only a long stretch is worth reading
+       at double speed, where half the frames go past unread. */
+    var rate=(t1-t0)>6?2:1;
+    var wasMute=rv.muted, wasRate=rv.playbackRate;
+    var got=[],seen=0,done=false,cap=null,poll=null,heard=0;
+    function end(){
+      if(done)return; done=true;
+      skelScan=false;
+      clearTimeout(cap);clearInterval(poll);
+      rv.removeEventListener('ended',onEnd);
+      try{rv.pause()}catch(e){}
+      rv.muted=wasMute; rv.playbackRate=wasRate;
+      res({got:got,seen:seen});
+    }
+    function onEnd(){ end() }
+    function grab(now,meta){
+      if(done)return;
+      heard=Date.now();
+      var again=function(){ try{rv.requestVideoFrameCallback(grab)}catch(e){ end() } };
+      var mt=(meta&&meta.mediaTime!=null)?meta.mediaTime:rv.currentTime;
+      /* playing may start before the jump to the beginning has landed, so frames
+         from outside the stretch are skipped rather than taken as the end of it */
+      if(mt>=t1-1e-3){ if(seen||!rv.seeking)return end(); return again() }
+      if(mt<t0-0.05)return again();
+      /* one bad frame must not stop the pass: without this a single throw would
+         end the chain of callbacks and leave the person watching a dead figure */
+      try{
+        var snap=snapFrame();
+        var p=snap?window.__pose.detect(snap):null;
+        seen++;
+        var i=Math.round(mt*skelFps)-skelFrom;
+        if(p&&i>=0&&i<n&&(!got.length||got[got.length-1].i<i))got.push({i:i,p:p});
+        skelMsg('骨格を調べています  '+Math.round(Math.max(0,Math.min(1,(mt-t0)/(t1-t0)))*100)+'%');
+      }catch(e){}
+      again();
+    }
+    /* muted so the range noise does not play back, and so that iPhones allow
+       this at all — they refuse to start sound without a fresh tap */
+    rv.muted=true; rv.playbackRate=rate; skelScan=true;
+    var began=false;
+    function start(){
+      if(began)return; began=true;
+      rv.removeEventListener('seeked',start);
+      rv.addEventListener('ended',onEnd);
+      heard=Date.now();
+      try{ rv.requestVideoFrameCallback(grab) }catch(e){ return end() }
+      cap=setTimeout(function(){ end() },(t1-t0)/rate*1000+3000);
+      /* a clip can stop short of its stated end, and then no "ended" arrives and
+         no further frames do either. Notice the silence instead of waiting it out. */
+      poll=setInterval(function(){
+        if(done)return;
+        if(Date.now()-heard>700&&(rv.paused||rv.ended))return end();
+        /* playing but showing nothing: the phone has put the app in the
+           background, where frames are no longer drawn and so never reach us.
+           Stop waiting and walk the frames instead. */
+        if(Date.now()-heard>1600)return end();
+      },250);
+      var pp=null;
+      try{ pp=rv.play() }catch(e){ return end() }
+      if(pp&&pp.catch)pp.catch(function(){ end() });
+    }
+    rv.addEventListener('seeked',start);
+    rv.currentTime=t0;
+    /* already sitting on the first frame: no seek happens, so no seeked event */
+    if(Math.abs(rv.currentTime-t0)<0.01)start();
+    else setTimeout(start,600);
+  });
+}
+/* Fallback for anything that will not play on command: walk the frames. Reading
+   and decoding are separate engines, so the next seek is started before the
+   current frame is read rather than after it. */
+async function scanSeek(t0,t1,n,dur){
+  var step = n<=240 ? 1 : (n<=460 ? 2 : 3);
+  var m=Math.ceil(n/step), got=[];
+  var tAt=function(k){return Math.min(dur-1e-3,t0+(k*step+0.5)/skelFps)};
+  var wait=seekTo(tAt(0));
+  for(var k=0;k<m;k++){
+    await wait;
+    var snap=snapFrame();
+    wait=(k+1<m)?seekTo(tAt(k+1)):null;
+    var p=snap?window.__pose.detect(snap):null;
+    if(p)got.push({i:Math.min(n-1,k*step),p:p});
+    if(k%4===0){
+      skelMsg('骨格を調べています  '+Math.round((k+1)/m*100)+'%');
+      await new Promise(function(r){setTimeout(r,0)});
+    }
+  }
+  return got;
 }
 async function buildSkeleton(){
   if(!cur||!rv.videoWidth){toast('映像がありません');return}
@@ -2022,37 +2295,35 @@ async function buildSkeleton(){
   }
   var dur=isFinite(rv.duration)?rv.duration:0;
   skelFps=cur.fps||60;
-  /* Look at the swing, not the whole recording. When the app caught the strike
-     it already knows where that was; otherwise take the first stretch. */
+  /* Look at the swing, not the whole recording. A length the person set
+     themselves says exactly what they want looked at; failing that, the strike
+     the app caught; failing that, the first stretch. */
   var t0=0,t1=Math.min(dur,12);
-  if(cur.swing>0){ t0=Math.max(0,cur.swing-3.5); t1=Math.min(dur,cur.swing+3.5); }
+  if(cutOn()){ t0=cutA(); t1=cutB(); }
+  else if(cur.swing>0){ t0=Math.max(0,cur.swing-3.0); t1=Math.min(dur,cur.swing+2.0); }
   skelFrom=Math.round(t0*skelFps);
   var n=Math.max(1,Math.round((t1-t0)*skelFps));
-  /* At 60 a second, reading every other frame still leaves thirty readings a
-     second on screen — plenty to watch. Slower footage is read in full. */
-  var step=skelFps>=50?2:1;
-  var m=Math.ceil(n/step);
   rv.pause();
-  var got=0,samples=new Array(m).fill(null);
-  for(var k=0;k<m;k++){
-    await seekTo(Math.min(dur-1e-3,t0+(k*step+0.5)/skelFps));
-    var p=window.__pose.detect(rv);
-    samples[k]=p; if(p)got++;
-    if(k%3===0){
-      skelMsg('骨格を調べています  '+Math.round((k+1)/m*100)+'%');
-      await new Promise(function(r){setTimeout(r,0)});
-    }
-  }
+  skelMsg('骨格を調べています  0%');
+  var need=Math.max(6,(t1-t0)*8);
+  var sc=await scanPlay(t0,t1,n);
+  var got=sc?sc.got:[];
+  /* judge the playthrough on the frames it managed to look at, not on what it
+     found in them: a clip with nobody in it should not be walked twice */
+  if(!sc||sc.seen<need)got=await scanSeek(t0,t1,n,dur);
   skelMsg('');
   skelBusy=false;$('#rSkel').disabled=false;
-  if(got<m*0.25){
+  /* eight readings a second is the least that still looks like a swing rather
+     than a slideshow; below that something is wrong with the footage */
+  if(got.length<need){
     skel=null;
     toast('骨格をうまく読み取れませんでした。全身が入るように撮ってください');
     return;
   }
   /* settle the readings first, then fill the gaps — smoothing after filling
      would just be averaging in the numbers we invented */
-  skel=fillSkel(smoothSkel(samples,1),step,n);
+  var sm=smoothSkel(got.map(function(g){return g.p}),1);
+  skel=fillGaps(got.map(function(g,k){return {i:g.i,p:sm[k]||g.p}}),n);
   skelId=cur.id;skelOn=true;
   $('#rSkel').classList.add('on');
   await seekTo(Math.min(dur-1e-3,t0));
@@ -2190,6 +2461,98 @@ $('#rNoteSave').onclick=function(){
   syncMeta();
   updateClip(cur).then(function(){renderList()});
   toast(cur.note?'コメントを保存しました':'コメントを削除しました');
+};
+/* ---- the length editor ----
+   Written for the person who shot the swing, not for an editor: two handles, a
+   live picture, and the length in seconds. Nothing is destroyed, so 「やめる」
+   really does put everything back. */
+var cutBak=null,cutAsked={},CUTMIN=0.4;
+function drawCut(){
+  var d=vdur()||1,a=cur.cut0,b=cur.cut1;
+  $('#rCut0').value=Math.round(a/d*1000);
+  $('#rCut1').value=Math.round(b/d*1000);
+  $('#vCut0').textContent=a.toFixed(2);
+  $('#vCut1').textContent=b.toFixed(2);
+  $('#vCutLen').textContent=(b-a).toFixed(2);
+}
+function setCut(a,b,to){
+  var d=vdur()||0;
+  a=Math.max(0,Math.min(d-CUTMIN,a));
+  b=Math.max(a+CUTMIN,Math.min(d,b));
+  cur.cut0=a;cur.cut1=b;
+  drawCut();
+  if(to!=null){try{rv.currentTime=Math.max(a,Math.min(b-0.02,to))}catch(e){}}
+  updTime();
+}
+function openCut(){
+  if(!cur){toast('動画を選んでください');return}
+  var d=vdur();
+  if(!d){toast('映像を読み込んでいます。少し待ってからもう一度押してください');return}
+  rv.pause();closePops();
+  $('#rNoteBox').classList.remove('on');
+  cutBak={a:cur.cut0||0,b:cur.cut1||0};
+  if(!(cur.cut1>cur.cut0)){cur.cut0=0;cur.cut1=d}
+  $('#rCutAuto').disabled=!cur.swing;
+  $('#vCutFull').textContent='もとの長さ '+d.toFixed(1)+'秒';
+  drawCut();
+  $('#rCutBox').classList.add('on');
+  /* the panel would otherwise sit on top of the play and frame buttons, and
+     those are how the person finds the moment they want to cut at */
+  $('#rTrans').style.bottom='calc(env(safe-area-inset-bottom) + '+
+    ($('#rCutBox').offsetHeight+58)+'px)';
+}
+function closeCut(){
+  $('#rCutBox').classList.remove('on');
+  $('#rTrans').style.bottom='';
+}
+/* a take made with the button has no detected swing and no length yet, so the
+   first thing to do with it is decide how much of it to keep */
+function offerCut(){
+  if(!cur||cutAsked[cur.id])return;
+  cutAsked[cur.id]=true;
+  if(reviewFrom!=='cam'||cur.swing||cur.cut1>cur.cut0)return;
+  if(Date.now()-cur.id>120000)return;        /* only a take just recorded */
+  if(vdur()<6)return;
+  openCut();
+}
+$('#rCut').onclick=function(){
+  if($('#rCutBox').classList.contains('on')){closeCut();return}
+  openCut();
+};
+$('#rCut0').addEventListener('input',function(){
+  var d=vdur()||1;rv.pause();
+  var a=d*this.value/1000;setCut(a,cur.cut1,a);
+});
+$('#rCut1').addEventListener('input',function(){
+  var d=vdur()||1;rv.pause();
+  var b=d*this.value/1000;setCut(cur.cut0,b,b-0.04);
+});
+$('#rCutHere0').onclick=function(){setCut(rv.currentTime,cur.cut1,rv.currentTime)};
+$('#rCutHere1').onclick=function(){setCut(cur.cut0,rv.currentTime,rv.currentTime-0.04)};
+$('#rCutAuto').onclick=function(){
+  if(!cur.swing)return;
+  setCut(Math.max(0,cur.swing-3),Math.min(vdur(),cur.swing+2),Math.max(0,cur.swing-3));
+};
+$('#rCutReset').onclick=function(){setCut(0,vdur(),0)};
+$('#rCutCancel').onclick=function(){
+  if(cutBak&&cur){cur.cut0=cutBak.a;cur.cut1=cutBak.b}
+  closeCut();cutSync();updTime();
+  try{rv.currentTime=cutA()}catch(e){}
+};
+$('#rCutOK').onclick=function(){
+  if(!cur){closeCut();return}
+  var d=vdur();
+  var whole=cur.cut0<0.02&&cur.cut1>d-0.02;
+  if(whole){cur.cut0=0;cur.cut1=0}
+  var moved=(cutBak&&(Math.abs((cutBak.a||0)-(cur.cut0||0))>0.02||
+                      Math.abs((cutBak.b||0)-(cur.cut1||0))>0.02));
+  closeCut();
+  updateClip(cur).then(function(){renderList()});
+  cutSync();updTime();
+  try{rv.currentTime=cutA()}catch(e){}
+  /* the skeleton was read over the old range, so it no longer lines up */
+  if(moved&&skel&&skelId===cur.id){skelReset();toast('長さを変えたので骨格は作り直してください')}
+  else toast(whole?'全部の長さにもどしました':'長さを'+(cur.cut1-cur.cut0).toFixed(1)+'秒にしました');
 };
 $('#rGrip').onclick=function(){$('#rSheet').classList.remove('on')};
 function syncWidth(){
